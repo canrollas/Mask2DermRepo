@@ -26,6 +26,8 @@ import argparse
 import os
 from pathlib import Path
 
+import cv2
+import numpy as np
 import torch
 from diffusers import (
     ControlNetModel,
@@ -34,6 +36,10 @@ from diffusers import (
 )
 from PIL import Image
 from tqdm import tqdm
+
+import sys
+sys.path.insert(0, str(Path(__file__).parent))
+from data.preprocessing import apply_barrel_distortion, apply_vignetting, apply_circular_mask
 
 
 # ---------------------------------------------------------------------------
@@ -69,6 +75,16 @@ def load_mask(mask_path: str | Path, size: int = 256) -> Image.Image:
     return mask.convert("RGB")
 
 
+def apply_optics(img: Image.Image) -> Image.Image:
+    """Apply dermoscopy optics: barrel distortion → vignetting → circular aperture."""
+    arr = np.array(img.convert("RGB"))
+    arr_bgr = cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
+    arr_bgr = apply_barrel_distortion(arr_bgr, k1=-0.3)
+    arr_bgr = apply_vignetting(arr_bgr, alpha=0.5, gamma=2.0)
+    arr_bgr = apply_circular_mask(arr_bgr)
+    return Image.fromarray(cv2.cvtColor(arr_bgr, cv2.COLOR_BGR2RGB))
+
+
 def generate_image(
     pipe: StableDiffusionControlNetPipeline,
     mask: Image.Image,
@@ -89,7 +105,7 @@ def generate_image(
         controlnet_conditioning_scale=controlnet_conditioning_scale,
         generator=generator,
     )
-    return result.images[0]
+    return apply_optics(result.images[0])
 
 
 def save_comparison_grid(masks: list[Image.Image], generated: list[Image.Image],
