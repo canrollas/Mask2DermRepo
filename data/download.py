@@ -134,15 +134,17 @@ def download_ham10000(out_dir: Path = RAW_DIR / "ham10000") -> None:
         - ~/.kaggle/kaggle.json with your API credentials
           (download from https://www.kaggle.com/settings)
     """
-    try:
-        import kaggle  # noqa: F401
-    except ImportError:
+    import importlib.util
+    if importlib.util.find_spec("kaggle") is None:
         raise ImportError(
             "Install the kaggle package: pip install kaggle\n"
             "And place your API key at ~/.kaggle/kaggle.json"
         )
 
+    # Credentials must exist BEFORE importing kaggle (it authenticates at import time)
     _ensure_kaggle_credentials()
+
+    import kaggle  # noqa: F401 — imported after credentials are in place
 
     out_dir.mkdir(parents=True, exist_ok=True)
     print("Downloading HAM10000 from Kaggle…")
