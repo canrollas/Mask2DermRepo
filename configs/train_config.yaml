@@ -11,10 +11,12 @@ resolution: 256
 apply_lens_simulation: true
 
 # --- Training ---
-train_batch_size: 4
-gradient_accumulation_steps: 16      # effective batch = 64
+train_batch_size: 32                 # A100 40GB kaldırır; effective batch = 64
+gradient_accumulation_steps: 2       # batch 32 x accum 2 = 64 (öncekiyle aynı)
 num_train_epochs: 100
 mixed_precision: "bf16"              # BF16: ~2x faster, same effective batch size
+dataloader_num_workers: 8            # A100 makinelerinde daha fazla CPU var
+torch_compile: true                  # PyTorch 2.0+ ile ~%20-30 hız kazancı
 
 # --- Optimizer (AdamW) ---
 learning_rate: 1.0e-5

@@ -283,6 +283,11 @@ def main() -> None:
     text_encoder.requires_grad_(False)
     controlnet.train()
 
+    # torch.compile — A100+ için ~20-30% hız kazancı (PyTorch 2.0+)
+    if cfg.get("torch_compile", False):
+        controlnet = torch.compile(controlnet)
+        console.log("[green]torch.compile enabled[/green]")
+
     # ------------------------------------------------------------------
     # Optimizer
     # ------------------------------------------------------------------
@@ -316,7 +321,8 @@ def main() -> None:
 
     train_loader = DataLoader(
         train_dataset, batch_size=cfg.train_batch_size, shuffle=True,
-        num_workers=4, pin_memory=True, collate_fn=collate_fn,
+        num_workers=cfg.get("dataloader_num_workers", 4),
+        pin_memory=True, collate_fn=collate_fn,
     )
 
     # ------------------------------------------------------------------
