@@ -101,6 +101,31 @@ def download_isic2018(limit: int | None = None, out_dir: Path = RAW_DIR / "isic2
 # HAM10000 via Kaggle
 # ---------------------------------------------------------------------------
 
+def _ensure_kaggle_credentials() -> None:
+    """Make sure ~/.kaggle/kaggle.json exists. If not, prompt the user."""
+    kaggle_dir = Path.home() / ".kaggle"
+    kaggle_json = kaggle_dir / "kaggle.json"
+
+    if kaggle_json.exists():
+        return
+
+    print("Kaggle credentials not found (~/.kaggle/kaggle.json).")
+    print("You can create an API token at: https://www.kaggle.com/settings → API → Create New Token")
+    print()
+
+    import getpass
+    username = input("Kaggle username: ").strip()
+    key = getpass.getpass("Kaggle API key: ").strip()
+
+    if not username or not key:
+        raise ValueError("Username and API key cannot be empty.")
+
+    kaggle_dir.mkdir(parents=True, exist_ok=True)
+    kaggle_json.write_text(json.dumps({"username": username, "key": key}))
+    kaggle_json.chmod(0o600)
+    print(f"Credentials saved to {kaggle_json}\n")
+
+
 def download_ham10000(out_dir: Path = RAW_DIR / "ham10000") -> None:
     """Download HAM10000 via the Kaggle API.
 
@@ -116,6 +141,8 @@ def download_ham10000(out_dir: Path = RAW_DIR / "ham10000") -> None:
             "Install the kaggle package: pip install kaggle\n"
             "And place your API key at ~/.kaggle/kaggle.json"
         )
+
+    _ensure_kaggle_credentials()
 
     out_dir.mkdir(parents=True, exist_ok=True)
     print("Downloading HAM10000 from Kaggle…")
