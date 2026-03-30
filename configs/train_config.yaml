@@ -11,8 +11,8 @@ resolution: 256
 apply_lens_simulation: true
 
 # --- Training ---
-train_batch_size: 32                 # A100 40GB kaldırır; effective batch = 64
-gradient_accumulation_steps: 2       # batch 32 x accum 2 = 64 (öncekiyle aynı)
+train_batch_size: 64                 # A100 40GB ~35-38GB kullanır
+gradient_accumulation_steps: 1       # batch 64 x accum 1 = 64 (aynı effective batch)
 num_train_epochs: 100
 mixed_precision: "bf16"              # BF16: ~2x faster, same effective batch size
 dataloader_num_workers: 8            # A100 makinelerinde daha fazla CPU var

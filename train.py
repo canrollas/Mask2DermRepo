@@ -22,6 +22,7 @@ Key design decisions (from the paper):
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import math
 import os
@@ -71,8 +72,10 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Mask2Derm ControlNet training")
     parser.add_argument("--config", type=str, default="configs/train_config.yaml",
                         help="Path to YAML training config")
-    parser.add_argument("--resume_from_checkpoint", type=str, default=None,
-                        help="Path to a checkpoint directory to resume from")
+    parser.add_argument("--resume-from-checkpoint", dest="resume_from_checkpoint",
+                        type=str, default=None,
+                        help="Path to a checkpoint directory to resume from "
+                             "(e.g. outputs/checkpoints/checkpoint-epoch-0059)")
     parser.add_argument("--dry_run", action="store_true",
                         help="Run one batch forward pass and exit (smoke test)")
     return parser.parse_args()
@@ -373,13 +376,38 @@ def main() -> None:
     # ------------------------------------------------------------------
     # Training
     # ------------------------------------------------------------------
-    global_step = 0
-    best_loss   = float("inf")
-    log_every   = cfg.get("logging_steps", 50)
+    global_step  = 0
+    best_loss    = float("inf")
+    start_epoch  = 0
+    log_every    = cfg.get("logging_steps", 50)
+
+    # Restore optimizer / scheduler / counters when resuming
+    if args.resume_from_checkpoint:
+        ckpt_path = Path(args.resume_from_checkpoint)
+        opt_file  = ckpt_path / "optimizer.pt"
+        sch_file  = ckpt_path / "scheduler.pt"
+        state_file = ckpt_path / "training_state.json"
+        if opt_file.exists():
+            optimizer.load_state_dict(
+                torch.load(opt_file, map_location=accelerator.device)
+            )
+            console.log(f"[green]Optimizer state restored from[/] {opt_file}")
+        if sch_file.exists():
+            lr_scheduler.load_state_dict(torch.load(sch_file, map_location="cpu"))
+            console.log(f"[green]LR scheduler state restored[/]")
+        if state_file.exists():
+            state = json.loads(state_file.read_text())
+            start_epoch  = state["epoch"]      # resume AFTER this epoch
+            global_step  = state["global_step"]
+            best_loss    = state["best_loss"]
+            console.log(
+                f"[green]Resuming from epoch {start_epoch + 1}  "
+                f"(global_step={global_step}, best_loss={best_loss:.5f})[/]"
+            )
 
     import time
 
-    for epoch in range(cfg.num_train_epochs):
+    for epoch in range(start_epoch, cfg.num_train_epochs):
         controlnet.train()
         epoch_loss = 0.0
         step_count = 0
@@ -467,6 +495,12 @@ def main() -> None:
             ckpt_dir = Path(cfg.get("checkpoint_dir", cfg.output_dir))
             save_path = ckpt_dir / f"checkpoint-epoch-{epoch:04d}"
             accelerator.unwrap_model(controlnet).save_pretrained(str(save_path))
+            torch.save(optimizer.state_dict(), save_path / "optimizer.pt")
+            torch.save(lr_scheduler.state_dict(), save_path / "scheduler.pt")
+            (save_path / "training_state.json").write_text(
+                json.dumps({"epoch": epoch, "global_step": global_step,
+                            "best_loss": best_loss})
+            )
 
             save_epoch_samples(
                 vae, text_encoder, tokenizer, unet, controlnet,

@@ -25,6 +25,8 @@ HAM10000 dx → malignancy mapping (from published literature):
 from __future__ import annotations
 
 import random
+
+import torch
 from pathlib import Path
 from typing import Callable
 
@@ -114,11 +116,15 @@ class DermoscopyDataset(Dataset):
         self.samples = self._build_samples(val_fraction, seed)
 
         # Augmentation pipeline (applied after optics / resize)
-        self._aug = transforms.Compose([
+        # Geometric transforms — applied identically to image AND mask
+        self._aug_geom = transforms.Compose([
             transforms.RandomHorizontalFlip(p=0.5),
             transforms.RandomVerticalFlip(p=0.5),
-            transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.02),
         ]) if self.augment else None
+        # Color jitter — applied to image ONLY (mask must stay binary)
+        self._aug_color = transforms.ColorJitter(
+            brightness=0.1, contrast=0.1, saturation=0.1, hue=0.02,
+        ) if self.augment else None
 
         # Normalisation to [-1, 1] for diffusion model input
         self._to_tensor = transforms.Compose([
@@ -203,13 +209,15 @@ class DermoscopyDataset(Dataset):
         # Convert mask to 3-channel (ControlNet expects RGB)
         pil_mask_rgb = pil_mask.convert("RGB")
 
-        # Data augmentation (same random seed for image and mask)
-        if self._aug is not None:
+        # Data augmentation — geometric transforms synced via torch seed
+        if self._aug_geom is not None:
             seed = random.randint(0, 2 ** 32 - 1)
-            random.seed(seed)
-            pil_img = self._aug(pil_img)
-            random.seed(seed)
-            pil_mask_rgb = self._aug(pil_mask_rgb)
+            torch.manual_seed(seed)
+            pil_img = self._aug_geom(pil_img)
+            torch.manual_seed(seed)
+            pil_mask_rgb = self._aug_geom(pil_mask_rgb)
+            # Color jitter on image only — mask must stay binary
+            pil_img = self._aug_color(pil_img)
 
         prompt = _get_prompt(sample["label"], randomize=self.randomize_prompt)
 
