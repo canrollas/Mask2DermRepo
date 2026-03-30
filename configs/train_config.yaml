@@ -1,22 +1,22 @@
-# Mask2Derm Training Configuration
-# Reproduces the settings from the paper (single NVIDIA A100)
+# Mask2Derm Training Configuration — SDXL
+# SG161222/RealVisXL_V4.0 (SDXL) + ControlNet seg
 
 # --- Model ---
-base_model: "SG161222/Realistic_Vision_V5.1_noVAE"
-controlnet_model: "lllyasviel/sd-controlnet-seg"
+base_model: "SG161222/RealVisXL_V4.0"
+controlnet_model: "xinsir/controlnet-seg-sdxl-1.0"
 
 # --- Data ---
 data_dir: "data/processed"
-resolution: 256
+resolution: 1024
 apply_lens_simulation: true
 
 # --- Training ---
-train_batch_size: 64                 # A100 40GB ~35-38GB kullanır
-gradient_accumulation_steps: 1       # batch 64 x accum 1 = 64 (aynı effective batch)
+train_batch_size: 4                  # 1024x1024: A100 80GB ~60-70GB kullanır
+gradient_accumulation_steps: 16      # effective batch: 4 x 16 = 64
 num_train_epochs: 100
-mixed_precision: "bf16"              # BF16: ~2x faster, same effective batch size
-dataloader_num_workers: 8            # A100 makinelerinde daha fazla CPU var
-torch_compile: true                  # PyTorch 2.0+ ile ~%20-30 hız kazancı
+mixed_precision: "bf16"
+dataloader_num_workers: 8
+torch_compile: false                 # SDXL + compile zaman zaman sorun çıkarır
 
 # --- Optimizer (AdamW) ---
 learning_rate: 1.0e-5
@@ -35,16 +35,16 @@ samples_dir: "/content/drive/MyDrive/Mask2DermRepo/outputs/samples"
 
 # --- Checkpointing & Logging ---
 logging_steps: 50
-validation_steps: 500                    # generate validation samples every N steps
+validation_steps: 500
 num_validation_images: 4
 tracker: "wandb"
 tracker_project: "mask2derm"
 
-# --- Epoch samples (saved at end of each epoch) ---
-num_epoch_samples: 4                     # how many cancer images to generate per epoch
-epoch_samples_steps: 20                  # DDIM steps for epoch sample generation
+# --- Epoch samples ---
+num_epoch_samples: 4
+epoch_samples_steps: 20
 
-# --- Inference defaults (used during validation) ---
-validation_prompt: "dermoscopy image of a malignant skin lesion, irregular borders, clinical photography"
+# --- Inference defaults ---
+validation_prompt: "dermoscopy image of a malignant skin lesion, irregular borders, clinical photography, high quality"
 num_inference_steps: 20
 guidance_scale: 7.5

@@ -32,7 +32,7 @@ import torch
 from diffusers import (
     ControlNetModel,
     DDIMScheduler,
-    StableDiffusionControlNetPipeline,
+    StableDiffusionXLControlNetPipeline,
 )
 from PIL import Image
 from tqdm import tqdm
@@ -51,16 +51,13 @@ def load_pipeline(
     base_model: str,
     device: str = "cuda",
     torch_dtype: torch.dtype = torch.float16,
-) -> StableDiffusionControlNetPipeline:
-    """Load the Mask2Derm inference pipeline."""
+) -> StableDiffusionXLControlNetPipeline:
+    """Load the Mask2Derm SDXL inference pipeline."""
     controlnet = ControlNetModel.from_pretrained(controlnet_path, torch_dtype=torch_dtype)
-    pipe = StableDiffusionControlNetPipeline.from_pretrained(
+    pipe = StableDiffusionXLControlNetPipeline.from_pretrained(
         base_model,
         controlnet=controlnet,
         torch_dtype=torch_dtype,
-        safety_checker=None,
-        feature_extractor=None,
-        requires_safety_checker=False,
     )
     pipe.scheduler = DDIMScheduler.from_config(pipe.scheduler.config)
     pipe.enable_attention_slicing()
@@ -86,7 +83,7 @@ def apply_optics(img: Image.Image) -> Image.Image:
 
 
 def generate_image(
-    pipe: StableDiffusionControlNetPipeline,
+    pipe: StableDiffusionXLControlNetPipeline,
     mask: Image.Image,
     prompt: str,
     negative_prompt: str,
@@ -135,8 +132,8 @@ def parse_args() -> argparse.Namespace:
 
     # Model
     parser.add_argument("--controlnet", required=True, help="Path to trained ControlNet")
-    parser.add_argument("--base_model", default="SG161222/Realistic_Vision_V5.1_noVAE",
-                        help="Base Stable Diffusion model")
+    parser.add_argument("--base_model", default="SG161222/RealVisXL_V4.0",
+                        help="Base SDXL model")
 
     # Input
     parser.add_argument("--mask", type=str, default=None, help="Single mask image path")
@@ -158,7 +155,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--guidance_scale", type=float, default=7.5)
     parser.add_argument("--controlnet_scale", type=float, default=1.0,
                         help="ControlNet conditioning scale")
-    parser.add_argument("--resolution", type=int, default=256)
+    parser.add_argument("--resolution", type=int, default=1024)
     parser.add_argument("--seed", type=int, default=42)
 
     # Output
