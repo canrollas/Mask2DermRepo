@@ -1,0 +1,41 @@
+# Mask2Derm Training Configuration
+# Reproduces the settings from the paper (single NVIDIA A100)
+
+# --- Model ---
+base_model: "SG161222/Realistic_Vision_V5.1_noVAE"
+controlnet_model: "lllyasviel/sd-controlnet-seg"
+
+# --- Data ---
+data_dir: "data/processed"
+resolution: 256
+apply_lens_simulation: true
+
+# --- Training ---
+train_batch_size: 16
+gradient_accumulation_steps: 4       # effective batch = 64
+num_train_epochs: 100
+mixed_precision: "no"                 # FP32 for stability
+
+# --- Optimizer (AdamW) ---
+learning_rate: 1.0e-5
+lr_scheduler: "cosine"
+lr_warmup_steps: 500
+adam_beta1: 0.9
+adam_beta2: 0.999
+adam_weight_decay: 0.01
+adam_epsilon: 1.0e-8
+max_grad_norm: 1.0
+
+# --- Checkpointing & Logging ---
+output_dir: "outputs/mask2derm"
+checkpointing_steps: "epoch"          # save every epoch
+logging_steps: 50
+validation_steps: 500                 # generate sample images every N steps
+num_validation_images: 4
+tracker: "wandb"                      # set to "tensorboard" if no wandb account
+tracker_project: "mask2derm"
+
+# --- Inference defaults (used during validation) ---
+validation_prompt: "dermoscopy image of a skin lesion, clinical photography, high quality"
+num_inference_steps: 20
+guidance_scale: 7.5
