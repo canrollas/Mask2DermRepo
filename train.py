@@ -296,6 +296,9 @@ def main() -> None:
         if args.resume_from_checkpoint:
             controlnet = ControlNetModel.from_pretrained(args.resume_from_checkpoint)
             console.log(f"[green]Resumed ControlNet from[/] {args.resume_from_checkpoint}")
+        elif cfg.controlnet_model == "from_unet":
+            controlnet = ControlNetModel.from_unet(unet)
+            console.log("[green]ControlNet initialized from UNet architecture[/]")
         else:
             controlnet = ControlNetModel.from_pretrained(cfg.controlnet_model)
             console.log(f"[green]Loaded ControlNet from[/] {cfg.controlnet_model}")
