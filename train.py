@@ -60,7 +60,7 @@ from transformers import CLIPTextModel, CLIPTokenizer
 from data.dataset import DermoscopyDataset
 
 logger = get_logger(__name__, log_level="WARNING")
-console = Console()
+console = Console(force_terminal=False, force_jupyter=False, highlight=False)
 
 
 # ---------------------------------------------------------------------------
@@ -230,14 +230,10 @@ def print_step(epoch: int, total_epochs: int, step: int, total_steps: int,
 def print_epoch_summary(epoch: int, total_epochs: int, avg_loss: float,
                         best_loss: float, elapsed: float) -> None:
     mins, secs = divmod(int(elapsed), 60)
-    t = Table.grid(padding=(0, 3))
-    t.add_column(style="bold cyan")
-    t.add_column(style="white")
-    t.add_column(style="bold cyan")
-    t.add_column(style="white")
-    t.add_row("Epoch",     f"{epoch}/{total_epochs}", "Time",  f"{mins}m {secs}s")
-    t.add_row("Avg loss",  f"{avg_loss:.5f}",         "Best",  f"{best_loss:.5f}")
-    console.print(Panel(t, border_style="green", title=f"Epoch {epoch} done"))
+    print(f"\n{'='*60}")
+    print(f"  EPOCH {epoch}/{total_epochs} DONE  |  {mins}m {secs}s")
+    print(f"  Avg loss: {avg_loss:.5f}  |  Best: {best_loss:.5f}")
+    print(f"{'='*60}\n", flush=True)
 
 
 # ---------------------------------------------------------------------------
@@ -382,7 +378,7 @@ def main() -> None:
         epoch_loss = 0.0
         step_count = 0
         epoch_start = time.time()
-        console.rule(f"[bold blue]Epoch {epoch + 1}/{cfg.num_train_epochs}")
+        print(f"\n--- Epoch {epoch + 1}/{cfg.num_train_epochs} ---", flush=True)
 
         for batch in train_loader:
             with accelerator.accumulate(controlnet):
