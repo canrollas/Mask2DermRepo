@@ -7,13 +7,13 @@ controlnet_model: "from_unet"   # ControlNet initialized from the SDXL UNet arch
 
 # --- Data ---
 data_dir: "data/processed"
-resolution: 1024
+resolution: 768
 apply_lens_simulation: true
 
 # --- Training ---
-train_batch_size: 4                  # 1024x1024: A100 80GB ~60-70GB kullanır
-gradient_accumulation_steps: 16      # effective batch: 4 x 16 = 64
-num_train_epochs: 100
+train_batch_size: 8                  # 768x768: RTX PRO 6000 ~70-80GB kullanır
+gradient_accumulation_steps: 8       # effective batch: 8 x 8 = 64
+num_train_epochs: 50
 mixed_precision: "bf16"
 dataloader_num_workers: 8
 torch_compile: false                 # SDXL + compile zaman zaman sorun çıkarır
