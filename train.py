@@ -52,20 +52,8 @@ from diffusers import (
 from diffusers.optimization import get_scheduler
 from omegaconf import OmegaConf
 from rich.console import Console
-from rich.live import Live
 from rich.panel import Panel
-from rich.progress import (
-    BarColumn,
-    MofNCompleteColumn,
-    Progress,
-    SpinnerColumn,
-    TaskProgressColumn,
-    TextColumn,
-    TimeElapsedColumn,
-    TimeRemainingColumn,
-)
 from rich.table import Table
-from rich.text import Text
 from torch.utils.data import DataLoader
 from transformers import CLIPTextModel, CLIPTokenizer
 
@@ -223,41 +211,33 @@ def save_epoch_samples(
 # Rich UI helpers
 # ---------------------------------------------------------------------------
 
-def make_progress() -> Progress:
-    return Progress(
-        SpinnerColumn(),
-        TextColumn("[bold blue]{task.description}"),
-        BarColumn(bar_width=40),
-        MofNCompleteColumn(),
-        TaskProgressColumn(),
-        TimeElapsedColumn(),
-        TimeRemainingColumn(),
-        console=console,
-        transient=False,
+def print_step(epoch: int, total_epochs: int, step: int, total_steps: int,
+               loss: float, lr: float) -> None:
+    pct = step / total_steps * 100
+    bar_len = 30
+    filled = int(bar_len * step / total_steps)
+    bar = "█" * filled + "░" * (bar_len - filled)
+    console.print(
+        f"  [cyan]E[bold]{epoch:>3}/{total_epochs}[/bold][/cyan]"
+        f"  [blue]{bar}[/blue]"
+        f"  [white]{step:>4}/{total_steps}[/white] ({pct:5.1f}%)"
+        f"  loss=[yellow]{loss:.4f}[/yellow]"
+        f"  lr=[dim]{lr:.2e}[/dim]",
+        highlight=False,
     )
 
 
-def make_stats_table(epoch: int, total_epochs: int, step: int,
-                     loss: float, lr: float, best_loss: float) -> Table:
-    table = Table.grid(padding=(0, 2))
-    table.add_column(style="bold cyan")
-    table.add_column(style="white")
-    table.add_column(style="bold cyan")
-    table.add_column(style="white")
-
-    table.add_row(
-        "Epoch", f"{epoch}/{total_epochs}",
-        "Step",  str(step),
-    )
-    table.add_row(
-        "Loss",  f"{loss:.5f}",
-        "Best",  f"{best_loss:.5f}",
-    )
-    table.add_row(
-        "LR",    f"{lr:.2e}",
-        "",      "",
-    )
-    return table
+def print_epoch_summary(epoch: int, total_epochs: int, avg_loss: float,
+                        best_loss: float, elapsed: float) -> None:
+    mins, secs = divmod(int(elapsed), 60)
+    t = Table.grid(padding=(0, 3))
+    t.add_column(style="bold cyan")
+    t.add_column(style="white")
+    t.add_column(style="bold cyan")
+    t.add_column(style="white")
+    t.add_row("Epoch",     f"{epoch}/{total_epochs}", "Time",  f"{mins}m {secs}s")
+    t.add_row("Avg loss",  f"{avg_loss:.5f}",         "Best",  f"{best_loss:.5f}")
+    console.print(Panel(t, border_style="green", title=f"Epoch {epoch} done"))
 
 
 # ---------------------------------------------------------------------------
@@ -393,112 +373,103 @@ def main() -> None:
     # ------------------------------------------------------------------
     global_step = 0
     best_loss   = float("inf")
+    log_every   = cfg.get("logging_steps", 50)
 
-    epoch_progress = make_progress()
-    step_progress  = make_progress()
+    import time
 
-    epoch_task = epoch_progress.add_task("Epochs", total=cfg.num_train_epochs)
-    step_task  = step_progress.add_task("Steps ",  total=num_update_steps_per_epoch)
+    for epoch in range(cfg.num_train_epochs):
+        controlnet.train()
+        epoch_loss = 0.0
+        step_count = 0
+        epoch_start = time.time()
+        console.rule(f"[bold blue]Epoch {epoch + 1}/{cfg.num_train_epochs}")
 
-    layout = Table.grid()
-    layout.add_row(Panel(epoch_progress, border_style="blue"))
-    layout.add_row(Panel(step_progress,  border_style="cyan"))
+        for batch in train_loader:
+            with accelerator.accumulate(controlnet):
+                latents = vae.encode(batch["pixel_values"].to(vae.dtype)).latent_dist.sample()
+                latents = latents * vae.config.scaling_factor
 
-    with Live(layout, console=console, refresh_per_second=4):
-        for epoch in range(cfg.num_train_epochs):
-            controlnet.train()
-            epoch_loss = 0.0
-            step_count = 0
-            step_progress.reset(step_task)
+                noise      = torch.randn_like(latents)
+                bsz        = latents.shape[0]
+                timesteps  = torch.randint(
+                    0, noise_scheduler.config.num_train_timesteps,
+                    (bsz,), device=latents.device,
+                ).long()
 
-            for batch in train_loader:
-                with accelerator.accumulate(controlnet):
-                    latents = vae.encode(batch["pixel_values"].to(vae.dtype)).latent_dist.sample()
-                    latents = latents * vae.config.scaling_factor
+                noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
 
-                    noise      = torch.randn_like(latents)
-                    bsz        = latents.shape[0]
-                    timesteps  = torch.randint(
-                        0, noise_scheduler.config.num_train_timesteps,
-                        (bsz,), device=latents.device,
-                    ).long()
+                input_ids = tokenize_prompts(tokenizer, batch["prompts"]).to(latents.device)
+                encoder_hidden_states = text_encoder(input_ids)[0]
 
-                    noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
+                controlnet_image = batch["conditioning_pixel_values"].to(
+                    dtype=controlnet.dtype if hasattr(controlnet, "dtype") else latents.dtype
+                )
+                down_block_res_samples, mid_block_res_sample = controlnet(
+                    noisy_latents, timesteps,
+                    encoder_hidden_states=encoder_hidden_states,
+                    controlnet_cond=controlnet_image,
+                    return_dict=False,
+                )
 
-                    input_ids = tokenize_prompts(tokenizer, batch["prompts"]).to(latents.device)
-                    encoder_hidden_states = text_encoder(input_ids)[0]
+                noise_pred = unet(
+                    noisy_latents, timesteps,
+                    encoder_hidden_states=encoder_hidden_states,
+                    down_block_additional_residuals=down_block_res_samples,
+                    mid_block_additional_residual=mid_block_res_sample,
+                ).sample
 
-                    controlnet_image = batch["conditioning_pixel_values"].to(
-                        dtype=controlnet.dtype if hasattr(controlnet, "dtype") else latents.dtype
-                    )
-                    down_block_res_samples, mid_block_res_sample = controlnet(
-                        noisy_latents, timesteps,
-                        encoder_hidden_states=encoder_hidden_states,
-                        controlnet_cond=controlnet_image,
-                        return_dict=False,
-                    )
-
-                    noise_pred = unet(
-                        noisy_latents, timesteps,
-                        encoder_hidden_states=encoder_hidden_states,
-                        down_block_additional_residuals=down_block_res_samples,
-                        mid_block_additional_residual=mid_block_res_sample,
-                    ).sample
-
-                    loss = F.mse_loss(noise_pred.float(), noise.float(), reduction="mean")
-                    epoch_loss += loss.detach().item()
-                    accelerator.backward(loss)
-
-                    if accelerator.sync_gradients:
-                        accelerator.clip_grad_norm_(controlnet.parameters(), cfg.max_grad_norm)
-
-                    optimizer.step()
-                    lr_scheduler.step()
-                    optimizer.zero_grad()
+                loss = F.mse_loss(noise_pred.float(), noise.float(), reduction="mean")
+                epoch_loss += loss.detach().item()
+                accelerator.backward(loss)
 
                 if accelerator.sync_gradients:
-                    global_step += 1
-                    step_count  += 1
-                    current_lr   = lr_scheduler.get_last_lr()[0]
-                    avg_loss     = epoch_loss / step_count
+                    accelerator.clip_grad_norm_(controlnet.parameters(), cfg.max_grad_norm)
 
-                    accelerator.log({"loss": avg_loss, "lr": current_lr}, step=global_step)
-                    step_progress.update(
-                        step_task,
-                        advance=1,
-                        description=f"Steps  loss={avg_loss:.4f} lr={current_lr:.1e}",
-                    )
+                optimizer.step()
+                lr_scheduler.step()
+                optimizer.zero_grad()
 
-                    if (cfg.validation_steps and global_step % cfg.validation_steps == 0
-                            and accelerator.is_main_process):
-                        log_validation(vae, text_encoder, tokenizer, unet, controlnet,
-                                       noise_scheduler, cfg, accelerator, global_step)
+            if accelerator.sync_gradients:
+                global_step += 1
+                step_count  += 1
+                current_lr   = lr_scheduler.get_last_lr()[0]
+                avg_loss     = epoch_loss / step_count
 
-                if args.dry_run:
-                    console.log("[yellow]Dry run complete — exiting.[/yellow]")
-                    accelerator.end_training()
-                    return
+                accelerator.log({"loss": avg_loss, "lr": current_lr}, step=global_step)
 
-            # ----- End of epoch -----
-            avg_epoch_loss = epoch_loss / max(step_count, 1)
-            if avg_epoch_loss < best_loss:
-                best_loss = avg_epoch_loss
+                if step_count % log_every == 0 or step_count == num_update_steps_per_epoch:
+                    print_step(epoch + 1, cfg.num_train_epochs,
+                               step_count, num_update_steps_per_epoch,
+                               avg_loss, current_lr)
 
-            epoch_progress.update(
-                epoch_task,
-                advance=1,
-                description=f"Epochs loss={avg_epoch_loss:.4f} best={best_loss:.4f}",
+                if (cfg.validation_steps and global_step % cfg.validation_steps == 0
+                        and accelerator.is_main_process):
+                    log_validation(vae, text_encoder, tokenizer, unet, controlnet,
+                                   noise_scheduler, cfg, accelerator, global_step)
+
+            if args.dry_run:
+                console.log("[yellow]Dry run complete — exiting.[/yellow]")
+                accelerator.end_training()
+                return
+
+        # ----- End of epoch -----
+        avg_epoch_loss = epoch_loss / max(step_count, 1)
+        if avg_epoch_loss < best_loss:
+            best_loss = avg_epoch_loss
+
+        print_epoch_summary(epoch + 1, cfg.num_train_epochs,
+                            avg_epoch_loss, best_loss,
+                            time.time() - epoch_start)
+
+        if accelerator.is_main_process:
+            ckpt_dir = Path(cfg.get("checkpoint_dir", cfg.output_dir))
+            save_path = ckpt_dir / f"checkpoint-epoch-{epoch:04d}"
+            accelerator.unwrap_model(controlnet).save_pretrained(str(save_path))
+
+            save_epoch_samples(
+                vae, text_encoder, tokenizer, unet, controlnet,
+                noise_scheduler, cfg, accelerator, val_dataset, epoch + 1,
             )
-
-            if accelerator.is_main_process:
-                ckpt_dir = Path(cfg.get("checkpoint_dir", cfg.output_dir))
-                save_path = ckpt_dir / f"checkpoint-epoch-{epoch:04d}"
-                accelerator.unwrap_model(controlnet).save_pretrained(str(save_path))
-
-                save_epoch_samples(
-                    vae, text_encoder, tokenizer, unet, controlnet,
-                    noise_scheduler, cfg, accelerator, val_dataset, epoch,
-                )
 
     # Final save
     if accelerator.is_main_process:
