@@ -13,10 +13,10 @@ Usage (multi-GPU):
 Key design decisions (from the paper):
   - VAE, U-Net backbone, and CLIP text encoder are fully frozen.
   - Only ControlNet parameters receive gradient updates.
-  - Training precision: FP32.
+  - Training precision: BF16.
   - Optimizer: AdamW (β1=0.9, β2=0.999, wd=1e-2, lr=1e-5)
   - Scheduler: Cosine with 500 warmup steps.
-  - Resolution: 256×256, batch size 16 + 4 grad-accum steps.
+  - Resolution: 256×256, batch size 4 + 16 grad-accum steps.
 """
 
 from __future__ import annotations
@@ -25,7 +25,18 @@ import argparse
 import logging
 import math
 import os
+import random
 from pathlib import Path
+
+# --- Silence noisy third-party loggers before any imports ---
+os.environ.setdefault("WANDB_MODE", "offline")
+os.environ.setdefault("WANDB_SILENT", "true")
+os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+os.environ.setdefault("DIFFUSERS_VERBOSITY", "error")
+
+for _noisy in ("httpx", "httpcore", "huggingface_hub", "huggingface_hub.utils._http",
+               "huggingface_hub.utils._validators", "wandb", "filelock"):
+    logging.getLogger(_noisy).setLevel(logging.ERROR)
 
 import torch
 import torch.nn.functional as F
@@ -40,13 +51,28 @@ from diffusers import (
 )
 from diffusers.optimization import get_scheduler
 from omegaconf import OmegaConf
+from rich.console import Console
+from rich.live import Live
+from rich.panel import Panel
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    SpinnerColumn,
+    TaskProgressColumn,
+    TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+)
+from rich.table import Table
+from rich.text import Text
 from torch.utils.data import DataLoader
-from tqdm.auto import tqdm
 from transformers import CLIPTextModel, CLIPTokenizer
 
 from data.dataset import DermoscopyDataset
 
-logger = get_logger(__name__, log_level="INFO")
+logger = get_logger(__name__, log_level="WARNING")
+console = Console()
 
 
 # ---------------------------------------------------------------------------
@@ -90,7 +116,7 @@ def log_validation(
     from diffusers import StableDiffusionControlNetPipeline, DDIMScheduler
     from torchvision.utils import make_grid
 
-    logger.info("Running validation…")
+    console.log("[dim]Running validation...[/dim]")
     pipeline = StableDiffusionControlNetPipeline(
         vae=accelerator.unwrap_model(vae),
         text_encoder=accelerator.unwrap_model(text_encoder),
@@ -104,7 +130,6 @@ def log_validation(
     )
     pipeline.set_progress_bar_config(disable=True)
 
-    # Use a simple circular white mask as validation condition
     import numpy as np
     from PIL import Image, ImageDraw
 
@@ -130,6 +155,111 @@ def log_validation(
     torch.cuda.empty_cache()
 
 
+@torch.no_grad()
+def save_epoch_samples(
+    vae, text_encoder, tokenizer, unet, controlnet, scheduler,
+    cfg, accelerator, val_dataset, epoch: int,
+) -> None:
+    """Generate a few malignant samples from random val masks and save as a grid PNG."""
+    from diffusers import StableDiffusionControlNetPipeline, DDIMScheduler
+    from torchvision.utils import save_image
+    import numpy as np
+    from PIL import Image
+
+    n = cfg.get("num_epoch_samples", 4)
+    steps = cfg.get("epoch_samples_steps", 20)
+    out_dir = Path(cfg.get("samples_dir", "outputs/samples"))
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Pick random samples, prefer malignant ones
+    malignant = [s for s in val_dataset.samples if s.get("label") == "malignant"]
+    pool = malignant if len(malignant) >= n else val_dataset.samples
+    chosen = random.sample(pool, min(n, len(pool)))
+
+    masks_pil = []
+    for s in chosen:
+        m = Image.open(s["mask"]).convert("L").resize(
+            (cfg.resolution, cfg.resolution), Image.NEAREST
+        ).convert("RGB")
+        masks_pil.append(m)
+
+    pipeline = StableDiffusionControlNetPipeline(
+        vae=accelerator.unwrap_model(vae),
+        text_encoder=accelerator.unwrap_model(text_encoder),
+        tokenizer=tokenizer,
+        unet=accelerator.unwrap_model(unet),
+        controlnet=accelerator.unwrap_model(controlnet),
+        scheduler=DDIMScheduler.from_config(scheduler.config),
+        safety_checker=None,
+        feature_extractor=None,
+        requires_safety_checker=False,
+    )
+    pipeline.set_progress_bar_config(disable=True)
+
+    prompt = "dermoscopy image of a malignant skin lesion, irregular borders, clinical photography, high quality"
+    images = pipeline(
+        prompt=[prompt] * len(masks_pil),
+        image=masks_pil,
+        num_inference_steps=steps,
+        guidance_scale=cfg.guidance_scale,
+        generator=torch.Generator().manual_seed(epoch),
+    ).images
+
+    # Build grid: [mask | generated] pairs side by side
+    to_tensor = lambda img: torch.tensor(np.array(img)).permute(2, 0, 1).float() / 255.0
+    pairs = []
+    for mask_pil, gen_pil in zip(masks_pil, images):
+        pairs.extend([to_tensor(mask_pil), to_tensor(gen_pil)])
+
+    save_path = out_dir / f"epoch_{epoch:04d}.png"
+    save_image(pairs, save_path, nrow=2, padding=4, pad_value=0.5)
+    console.log(f"[green]Epoch {epoch} samples saved →[/] {save_path}")
+
+    del pipeline
+    torch.cuda.empty_cache()
+
+
+# ---------------------------------------------------------------------------
+# Rich UI helpers
+# ---------------------------------------------------------------------------
+
+def make_progress() -> Progress:
+    return Progress(
+        SpinnerColumn(),
+        TextColumn("[bold blue]{task.description}"),
+        BarColumn(bar_width=40),
+        MofNCompleteColumn(),
+        TaskProgressColumn(),
+        TimeElapsedColumn(),
+        TimeRemainingColumn(),
+        console=console,
+        transient=False,
+    )
+
+
+def make_stats_table(epoch: int, total_epochs: int, step: int,
+                     loss: float, lr: float, best_loss: float) -> Table:
+    table = Table.grid(padding=(0, 2))
+    table.add_column(style="bold cyan")
+    table.add_column(style="white")
+    table.add_column(style="bold cyan")
+    table.add_column(style="white")
+
+    table.add_row(
+        "Epoch", f"{epoch}/{total_epochs}",
+        "Step",  str(step),
+    )
+    table.add_row(
+        "Loss",  f"{loss:.5f}",
+        "Best",  f"{best_loss:.5f}",
+    )
+    table.add_row(
+        "LR",    f"{lr:.2e}",
+        "",      "",
+    )
+    return table
+
+
 # ---------------------------------------------------------------------------
 # Main training loop
 # ---------------------------------------------------------------------------
@@ -138,7 +268,8 @@ def main() -> None:
     args = parse_args()
     cfg = OmegaConf.load(args.config)
 
-    # Accelerator
+    # Accelerator (suppress its startup banner via logging level)
+    logging.basicConfig(level=logging.ERROR)
     logging_dir = Path(cfg.output_dir) / "logs"
     project_config = ProjectConfiguration(project_dir=cfg.output_dir,
                                            logging_dir=str(logging_dir))
@@ -148,28 +279,25 @@ def main() -> None:
         log_with=cfg.get("tracker", "tensorboard"),
         project_config=project_config,
     )
-    logging.basicConfig(format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-                        datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
-    logger.info(accelerator.state)
 
     set_seed(42)
 
     # ------------------------------------------------------------------
-    # Load models
+    # Load models (silently)
     # ------------------------------------------------------------------
-    tokenizer = CLIPTokenizer.from_pretrained(cfg.base_model, subfolder="tokenizer")
-    text_encoder = CLIPTextModel.from_pretrained(cfg.base_model, subfolder="text_encoder")
-    vae = AutoencoderKL.from_pretrained(cfg.base_model, subfolder="vae")
-    unet = UNet2DConditionModel.from_pretrained(cfg.base_model, subfolder="unet")
-    noise_scheduler = DDPMScheduler.from_pretrained(cfg.base_model, subfolder="scheduler")
+    with console.status("[bold green]Loading models...", spinner="dots"):
+        tokenizer    = CLIPTokenizer.from_pretrained(cfg.base_model, subfolder="tokenizer")
+        text_encoder = CLIPTextModel.from_pretrained(cfg.base_model, subfolder="text_encoder")
+        vae          = AutoencoderKL.from_pretrained(cfg.base_model, subfolder="vae")
+        unet         = UNet2DConditionModel.from_pretrained(cfg.base_model, subfolder="unet")
+        noise_scheduler = DDPMScheduler.from_pretrained(cfg.base_model, subfolder="scheduler")
 
-    # Load / init ControlNet
-    if args.resume_from_checkpoint:
-        controlnet = ControlNetModel.from_pretrained(args.resume_from_checkpoint)
-        logger.info(f"Resumed ControlNet from {args.resume_from_checkpoint}")
-    else:
-        controlnet = ControlNetModel.from_pretrained(cfg.controlnet_model)
-        logger.info(f"Initialized ControlNet from {cfg.controlnet_model}")
+        if args.resume_from_checkpoint:
+            controlnet = ControlNetModel.from_pretrained(args.resume_from_checkpoint)
+            console.log(f"[green]Resumed ControlNet from[/] {args.resume_from_checkpoint}")
+        else:
+            controlnet = ControlNetModel.from_pretrained(cfg.controlnet_model)
+            console.log(f"[green]Loaded ControlNet from[/] {cfg.controlnet_model}")
 
     # ------------------------------------------------------------------
     # Freeze everything except ControlNet
@@ -194,18 +322,12 @@ def main() -> None:
     # Dataset & DataLoader
     # ------------------------------------------------------------------
     train_dataset = DermoscopyDataset(
-        root=cfg.data_dir,
-        split="train",
-        resolution=cfg.resolution,
-        apply_lens=cfg.apply_lens_simulation,
-        augment=True,
+        root=cfg.data_dir, split="train", resolution=cfg.resolution,
+        apply_lens=cfg.apply_lens_simulation, augment=True,
     )
     val_dataset = DermoscopyDataset(
-        root=cfg.data_dir,
-        split="val",
-        resolution=cfg.resolution,
-        apply_lens=cfg.apply_lens_simulation,
-        augment=False,
+        root=cfg.data_dir, split="val", resolution=cfg.resolution,
+        apply_lens=cfg.apply_lens_simulation, augment=False,
     )
 
     def collate_fn(examples):
@@ -217,12 +339,8 @@ def main() -> None:
                 "prompts": prompts}
 
     train_loader = DataLoader(
-        train_dataset,
-        batch_size=cfg.train_batch_size,
-        shuffle=True,
-        num_workers=4,
-        pin_memory=True,
-        collate_fn=collate_fn,
+        train_dataset, batch_size=cfg.train_batch_size, shuffle=True,
+        num_workers=4, pin_memory=True, collate_fn=collate_fn,
     )
 
     # ------------------------------------------------------------------
@@ -250,115 +368,145 @@ def main() -> None:
     unet.to(accelerator.device)
     text_encoder.to(accelerator.device)
 
-    # ------------------------------------------------------------------
-    # Tracker init
-    # ------------------------------------------------------------------
     if accelerator.is_main_process:
         accelerator.init_trackers(cfg.get("tracker_project", "mask2derm"))
 
     # ------------------------------------------------------------------
+    # Print training summary
+    # ------------------------------------------------------------------
+    console.rule("[bold magenta]Mask2Derm Training")
+    summary = Table.grid(padding=(0, 2))
+    summary.add_column(style="bold cyan")
+    summary.add_column(style="white")
+    summary.add_row("Samples",    str(len(train_dataset)))
+    summary.add_row("Epochs",     str(cfg.num_train_epochs))
+    summary.add_row("Batch size", str(cfg.train_batch_size))
+    summary.add_row("Grad accum", str(cfg.gradient_accumulation_steps))
+    summary.add_row("Eff. batch", str(cfg.train_batch_size * cfg.gradient_accumulation_steps))
+    summary.add_row("Total steps",str(max_train_steps))
+    summary.add_row("Precision",  cfg.mixed_precision)
+    summary.add_row("Device",     str(accelerator.device))
+    console.print(Panel(summary, title="Config", border_style="magenta"))
+
+    # ------------------------------------------------------------------
     # Training
     # ------------------------------------------------------------------
-    logger.info(f"  Num train samples   = {len(train_dataset)}")
-    logger.info(f"  Num epochs          = {cfg.num_train_epochs}")
-    logger.info(f"  Batch size          = {cfg.train_batch_size}")
-    logger.info(f"  Grad accum steps    = {cfg.gradient_accumulation_steps}")
-    logger.info(f"  Total update steps  = {max_train_steps}")
-
     global_step = 0
-    progress_bar = tqdm(range(max_train_steps), disable=not accelerator.is_local_main_process)
-    progress_bar.set_description("Training")
+    best_loss   = float("inf")
 
-    for epoch in range(cfg.num_train_epochs):
-        controlnet.train()
-        train_loss = 0.0
+    epoch_progress = make_progress()
+    step_progress  = make_progress()
 
-        for batch in train_loader:
-            with accelerator.accumulate(controlnet):
-                # Encode images to latent space
-                latents = vae.encode(batch["pixel_values"].to(vae.dtype)).latent_dist.sample()
-                latents = latents * vae.config.scaling_factor
+    epoch_task = epoch_progress.add_task("Epochs", total=cfg.num_train_epochs)
+    step_task  = step_progress.add_task("Steps ",  total=num_update_steps_per_epoch)
 
-                # Sample noise and timesteps
-                noise = torch.randn_like(latents)
-                bsz = latents.shape[0]
-                timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps,
-                                          (bsz,), device=latents.device).long()
+    layout = Table.grid()
+    layout.add_row(Panel(epoch_progress, border_style="blue"))
+    layout.add_row(Panel(step_progress,  border_style="cyan"))
 
-                # Add noise (forward diffusion)
-                noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
+    with Live(layout, console=console, refresh_per_second=4):
+        for epoch in range(cfg.num_train_epochs):
+            controlnet.train()
+            epoch_loss = 0.0
+            step_count = 0
+            step_progress.reset(step_task)
 
-                # Encode text
-                input_ids = tokenize_prompts(tokenizer, batch["prompts"]).to(latents.device)
-                encoder_hidden_states = text_encoder(input_ids)[0]
+            for batch in train_loader:
+                with accelerator.accumulate(controlnet):
+                    latents = vae.encode(batch["pixel_values"].to(vae.dtype)).latent_dist.sample()
+                    latents = latents * vae.config.scaling_factor
 
-                # ControlNet forward
-                controlnet_image = batch["conditioning_pixel_values"].to(
-                    dtype=controlnet.dtype if hasattr(controlnet, "dtype") else latents.dtype
-                )
-                down_block_res_samples, mid_block_res_sample = controlnet(
-                    noisy_latents,
-                    timesteps,
-                    encoder_hidden_states=encoder_hidden_states,
-                    controlnet_cond=controlnet_image,
-                    return_dict=False,
-                )
+                    noise      = torch.randn_like(latents)
+                    bsz        = latents.shape[0]
+                    timesteps  = torch.randint(
+                        0, noise_scheduler.config.num_train_timesteps,
+                        (bsz,), device=latents.device,
+                    ).long()
 
-                # U-Net forward with ControlNet residuals
-                noise_pred = unet(
-                    noisy_latents,
-                    timesteps,
-                    encoder_hidden_states=encoder_hidden_states,
-                    down_block_additional_residuals=down_block_res_samples,
-                    mid_block_additional_residual=mid_block_res_sample,
-                ).sample
+                    noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
 
-                # MSE loss on noise prediction
-                loss = F.mse_loss(noise_pred.float(), noise.float(), reduction="mean")
+                    input_ids = tokenize_prompts(tokenizer, batch["prompts"]).to(latents.device)
+                    encoder_hidden_states = text_encoder(input_ids)[0]
 
-                train_loss += loss.detach().item()
-                accelerator.backward(loss)
+                    controlnet_image = batch["conditioning_pixel_values"].to(
+                        dtype=controlnet.dtype if hasattr(controlnet, "dtype") else latents.dtype
+                    )
+                    down_block_res_samples, mid_block_res_sample = controlnet(
+                        noisy_latents, timesteps,
+                        encoder_hidden_states=encoder_hidden_states,
+                        controlnet_cond=controlnet_image,
+                        return_dict=False,
+                    )
+
+                    noise_pred = unet(
+                        noisy_latents, timesteps,
+                        encoder_hidden_states=encoder_hidden_states,
+                        down_block_additional_residuals=down_block_res_samples,
+                        mid_block_additional_residual=mid_block_res_sample,
+                    ).sample
+
+                    loss = F.mse_loss(noise_pred.float(), noise.float(), reduction="mean")
+                    epoch_loss += loss.detach().item()
+                    accelerator.backward(loss)
+
+                    if accelerator.sync_gradients:
+                        accelerator.clip_grad_norm_(controlnet.parameters(), cfg.max_grad_norm)
+
+                    optimizer.step()
+                    lr_scheduler.step()
+                    optimizer.zero_grad()
 
                 if accelerator.sync_gradients:
-                    accelerator.clip_grad_norm_(controlnet.parameters(), cfg.max_grad_norm)
+                    global_step += 1
+                    step_count  += 1
+                    current_lr   = lr_scheduler.get_last_lr()[0]
+                    avg_loss     = epoch_loss / step_count
 
-                optimizer.step()
-                lr_scheduler.step()
-                optimizer.zero_grad()
+                    accelerator.log({"loss": avg_loss, "lr": current_lr}, step=global_step)
+                    step_progress.update(
+                        step_task,
+                        advance=1,
+                        description=f"Steps  loss={avg_loss:.4f} lr={current_lr:.1e}",
+                    )
 
-            # Sync step
-            if accelerator.sync_gradients:
-                progress_bar.update(1)
-                global_step += 1
-                avg_loss = train_loss / cfg.gradient_accumulation_steps
-                train_loss = 0.0
+                    if (cfg.validation_steps and global_step % cfg.validation_steps == 0
+                            and accelerator.is_main_process):
+                        log_validation(vae, text_encoder, tokenizer, unet, controlnet,
+                                       noise_scheduler, cfg, accelerator, global_step)
 
-                logs = {"loss": avg_loss, "lr": lr_scheduler.get_last_lr()[0]}
-                accelerator.log(logs, step=global_step)
-                progress_bar.set_postfix(**logs)
+                if args.dry_run:
+                    console.log("[yellow]Dry run complete — exiting.[/yellow]")
+                    accelerator.end_training()
+                    return
 
-                # Validation samples
-                if (cfg.validation_steps and global_step % cfg.validation_steps == 0
-                        and accelerator.is_main_process):
-                    log_validation(vae, text_encoder, tokenizer, unet, controlnet,
-                                   noise_scheduler, cfg, accelerator, global_step)
+            # ----- End of epoch -----
+            avg_epoch_loss = epoch_loss / max(step_count, 1)
+            if avg_epoch_loss < best_loss:
+                best_loss = avg_epoch_loss
 
-            if args.dry_run:
-                logger.info("Dry run complete — exiting after one batch.")
-                accelerator.end_training()
-                return
+            epoch_progress.update(
+                epoch_task,
+                advance=1,
+                description=f"Epochs loss={avg_epoch_loss:.4f} best={best_loss:.4f}",
+            )
 
-        # ----- End of epoch -----
-        if accelerator.is_main_process:
-            save_path = Path(cfg.output_dir) / f"checkpoint-epoch-{epoch:04d}"
-            accelerator.unwrap_model(controlnet).save_pretrained(str(save_path))
-            logger.info(f"Saved checkpoint → {save_path}")
+            if accelerator.is_main_process:
+                ckpt_dir = Path(cfg.get("checkpoint_dir", cfg.output_dir))
+                save_path = ckpt_dir / f"checkpoint-epoch-{epoch:04d}"
+                accelerator.unwrap_model(controlnet).save_pretrained(str(save_path))
+
+                save_epoch_samples(
+                    vae, text_encoder, tokenizer, unet, controlnet,
+                    noise_scheduler, cfg, accelerator, val_dataset, epoch,
+                )
 
     # Final save
     if accelerator.is_main_process:
-        final_path = Path(cfg.output_dir) / "controlnet-final"
+        final_path = Path(cfg.get("checkpoint_dir", cfg.output_dir)) / "controlnet-final"
         accelerator.unwrap_model(controlnet).save_pretrained(str(final_path))
-        logger.info(f"Training complete. Final model → {final_path}")
+        console.rule("[bold green]Training complete")
+        console.print(f"[green]Final model →[/] {final_path}")
+        console.print(f"[green]Samples    →[/] {cfg.get('samples_dir', 'outputs/samples')}")
 
     accelerator.end_training()
 
