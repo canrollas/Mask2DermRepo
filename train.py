@@ -160,7 +160,7 @@ def log_validation(
     images = pipeline(
         prompt=[cfg.validation_prompt] * cfg.num_validation_images,
         control_image=[mask] * cfg.num_validation_images,
-        control_mode=5,
+        control_mode=[5] * cfg.num_validation_images,
         num_inference_steps=cfg.num_inference_steps,
         guidance_scale=cfg.guidance_scale,
         generator=torch.manual_seed(42),
