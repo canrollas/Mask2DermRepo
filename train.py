@@ -297,7 +297,9 @@ def main() -> None:
         noise_scheduler = DDPMScheduler.from_pretrained(cfg.base_model, subfolder="scheduler")
 
         if args.resume_from_checkpoint:
-            controlnet = ControlNetUnionModel.from_pretrained(args.resume_from_checkpoint)
+            controlnet = ControlNetUnionModel.from_pretrained(
+                args.resume_from_checkpoint, local_files_only=True
+            )
             console.log(f"[green]Resumed ControlNet from[/] {args.resume_from_checkpoint}")
         elif cfg.controlnet_model == "from_unet":
             controlnet = ControlNetModel.from_unet(unet)
