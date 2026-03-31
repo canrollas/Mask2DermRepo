@@ -46,6 +46,7 @@ from accelerate.utils import ProjectConfiguration, set_seed
 from diffusers import (
     AutoencoderKL,
     ControlNetModel,
+    ControlNetUnionModel,
     DDPMScheduler,
     UNet2DConditionModel,
 )
@@ -131,13 +132,13 @@ def log_validation(
     vae, text_encoder_1, text_encoder_2, tokenizer_1, tokenizer_2,
     unet, controlnet, scheduler, cfg, accelerator, step: int,
 ) -> None:
-    from diffusers import StableDiffusionXLControlNetPipeline, DDIMScheduler
+    from diffusers import StableDiffusionXLControlNetUnionPipeline, DDIMScheduler
     from torchvision.utils import make_grid
     import numpy as np
     from PIL import Image, ImageDraw
 
     console.log("[dim]Running validation...[/dim]")
-    pipeline = StableDiffusionXLControlNetPipeline(
+    pipeline = StableDiffusionXLControlNetUnionPipeline(
         vae=accelerator.unwrap_model(vae),
         text_encoder=accelerator.unwrap_model(text_encoder_1),
         text_encoder_2=accelerator.unwrap_model(text_encoder_2),
@@ -159,6 +160,7 @@ def log_validation(
     images = pipeline(
         prompt=[cfg.validation_prompt] * cfg.num_validation_images,
         image=[mask] * cfg.num_validation_images,
+        control_mode=5,
         num_inference_steps=cfg.num_inference_steps,
         guidance_scale=cfg.guidance_scale,
         generator=torch.manual_seed(42),
@@ -176,7 +178,7 @@ def save_epoch_samples(
     vae, text_encoder_1, text_encoder_2, tokenizer_1, tokenizer_2,
     unet, controlnet, scheduler, cfg, accelerator, val_dataset, epoch: int,
 ) -> None:
-    from diffusers import StableDiffusionXLControlNetPipeline, DDIMScheduler
+    from diffusers import StableDiffusionXLControlNetUnionPipeline, DDIMScheduler
     from torchvision.utils import save_image
     import numpy as np
     from PIL import Image
@@ -197,7 +199,7 @@ def save_epoch_samples(
         ).convert("RGB")
         masks_pil.append(m)
 
-    pipeline = StableDiffusionXLControlNetPipeline(
+    pipeline = StableDiffusionXLControlNetUnionPipeline(
         vae=accelerator.unwrap_model(vae),
         text_encoder=accelerator.unwrap_model(text_encoder_1),
         text_encoder_2=accelerator.unwrap_model(text_encoder_2),
@@ -213,6 +215,7 @@ def save_epoch_samples(
     images = pipeline(
         prompt=[prompt] * len(masks_pil),
         image=masks_pil,
+        control_mode=5,
         num_inference_steps=steps,
         guidance_scale=cfg.guidance_scale,
         generator=torch.Generator().manual_seed(epoch),
@@ -294,13 +297,13 @@ def main() -> None:
         noise_scheduler = DDPMScheduler.from_pretrained(cfg.base_model, subfolder="scheduler")
 
         if args.resume_from_checkpoint:
-            controlnet = ControlNetModel.from_pretrained(args.resume_from_checkpoint)
+            controlnet = ControlNetUnionModel.from_pretrained(args.resume_from_checkpoint)
             console.log(f"[green]Resumed ControlNet from[/] {args.resume_from_checkpoint}")
         elif cfg.controlnet_model == "from_unet":
             controlnet = ControlNetModel.from_unet(unet)
             console.log("[green]ControlNet initialized from UNet architecture[/]")
         else:
-            controlnet = ControlNetModel.from_pretrained(
+            controlnet = ControlNetUnionModel.from_pretrained(
                 cfg.controlnet_model, torch_dtype=torch.bfloat16
             )
             console.log(f"[green]Loaded ControlNet from[/] {cfg.controlnet_model}")
@@ -468,11 +471,15 @@ def main() -> None:
                 controlnet_image = batch["conditioning_pixel_values"].to(
                     dtype=latents.dtype
                 )
+                control_type = torch.tensor(
+                    [5] * bsz, device=latents.device  # 5 = segmentation
+                )
 
                 down_block_res_samples, mid_block_res_sample = controlnet(
                     noisy_latents, timesteps,
                     encoder_hidden_states=prompt_embeds,
                     controlnet_cond=controlnet_image,
+                    control_type=control_type,
                     added_cond_kwargs=added_cond_kwargs,
                     return_dict=False,
                 )

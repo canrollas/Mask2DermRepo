@@ -3,7 +3,7 @@
 
 # --- Model ---
 base_model: "SG161222/RealVisXL_V4.0"
-controlnet_model: "xinsir/controlnet-seg-sdxl-1.0"  # Pretrained SDXL ControlNet on segmentation maps
+controlnet_model: "xinsir/controlnet-union-sdxl-1.0"  # Pretrained SDXL ControlNet (union, supports seg maps)
 
 # --- Data ---
 data_dir: "data/processed"
