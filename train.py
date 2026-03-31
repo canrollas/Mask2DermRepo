@@ -471,15 +471,17 @@ def main() -> None:
                 controlnet_image = batch["conditioning_pixel_values"].to(
                     dtype=latents.dtype
                 )
-                control_type = torch.tensor(
-                    [5] * bsz, device=latents.device  # 5 = segmentation
-                )
+                # Union ControlNet: control_type is [B, 8] one-hot, control_type_idx is active indices
+                control_type = torch.zeros(bsz, 8, device=latents.device, dtype=latents.dtype)
+                control_type[:, 5] = 1.0  # 5 = segmentation
+                control_type_idx = [5]
 
                 down_block_res_samples, mid_block_res_sample = controlnet(
                     noisy_latents, timesteps,
                     encoder_hidden_states=prompt_embeds,
                     controlnet_cond=controlnet_image,
                     control_type=control_type,
+                    control_type_idx=control_type_idx,
                     added_cond_kwargs=added_cond_kwargs,
                     return_dict=False,
                 )
