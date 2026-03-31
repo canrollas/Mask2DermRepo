@@ -300,7 +300,9 @@ def main() -> None:
             controlnet = ControlNetModel.from_unet(unet)
             console.log("[green]ControlNet initialized from UNet architecture[/]")
         else:
-            controlnet = ControlNetModel.from_pretrained(cfg.controlnet_model)
+            controlnet = ControlNetModel.from_pretrained(
+                cfg.controlnet_model, torch_dtype=torch.bfloat16
+            )
             console.log(f"[green]Loaded ControlNet from[/] {cfg.controlnet_model}")
 
     # ------------------------------------------------------------------
@@ -464,7 +466,7 @@ def main() -> None:
                 }
 
                 controlnet_image = batch["conditioning_pixel_values"].to(
-                    dtype=controlnet.dtype if hasattr(controlnet, "dtype") else latents.dtype
+                    dtype=latents.dtype
                 )
 
                 down_block_res_samples, mid_block_res_sample = controlnet(

@@ -3,7 +3,7 @@
 
 # --- Model ---
 base_model: "SG161222/RealVisXL_V4.0"
-controlnet_model: "from_unet"   # ControlNet initialized from the SDXL UNet architecture
+controlnet_model: "xinsir/controlnet-seg-sdxl-1.0"  # Pretrained SDXL ControlNet on segmentation maps
 
 # --- Data ---
 data_dir: "data/processed"
@@ -19,9 +19,9 @@ dataloader_num_workers: 8
 torch_compile: false                 # SDXL + compile zaman zaman sorun çıkarır
 
 # --- Optimizer (AdamW) ---
-learning_rate: 1.0e-5
+learning_rate: 5.0e-6
 lr_scheduler: "cosine"
-lr_warmup_steps: 500
+lr_warmup_steps: 1000
 adam_beta1: 0.9
 adam_beta2: 0.999
 adam_weight_decay: 0.01
@@ -42,7 +42,7 @@ tracker_project: "mask2derm"
 
 # --- Epoch samples ---
 num_epoch_samples: 4
-epoch_samples_steps: 20
+epoch_samples_steps: 30
 
 # --- Inference defaults ---
 validation_prompt: "dermoscopy image of a malignant skin lesion, irregular borders, clinical photography, high quality"
