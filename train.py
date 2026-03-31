@@ -159,7 +159,7 @@ def log_validation(
 
     images = pipeline(
         prompt=[cfg.validation_prompt] * cfg.num_validation_images,
-        image=[mask] * cfg.num_validation_images,
+        control_image=[mask] * cfg.num_validation_images,
         control_mode=5,
         num_inference_steps=cfg.num_inference_steps,
         guidance_scale=cfg.guidance_scale,
@@ -214,7 +214,7 @@ def save_epoch_samples(
     prompt = "dermoscopy image of a malignant skin lesion, irregular borders, clinical photography, high quality"
     images = pipeline(
         prompt=[prompt] * len(masks_pil),
-        image=masks_pil,
+        control_image=masks_pil,
         control_mode=5,
         num_inference_steps=steps,
         guidance_scale=cfg.guidance_scale,
