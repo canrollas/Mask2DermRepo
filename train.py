@@ -215,7 +215,7 @@ def save_epoch_samples(
     images = pipeline(
         prompt=[prompt] * len(masks_pil),
         control_image=masks_pil,
-        control_mode=5,
+        control_mode=[5] * len(masks_pil),
         num_inference_steps=steps,
         guidance_scale=cfg.guidance_scale,
         generator=torch.Generator().manual_seed(epoch),
