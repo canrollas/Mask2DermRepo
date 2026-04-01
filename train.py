@@ -426,7 +426,7 @@ def main() -> None:
             console.log(f"[green]LR scheduler state restored[/]")
         if state_file.exists():
             state       = json.loads(state_file.read_text())
-            start_epoch = state["epoch"]
+            start_epoch = state["epoch"] + 1
             global_step = state["global_step"]
             best_loss   = state["best_loss"]
             console.log(f"[green]Resuming from epoch {start_epoch + 1}[/]")
