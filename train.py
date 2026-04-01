@@ -163,6 +163,7 @@ def log_validation(
         control_mode=[5] * cfg.num_validation_images,
         num_inference_steps=cfg.num_inference_steps,
         guidance_scale=cfg.guidance_scale,
+        controlnet_conditioning_scale=cfg.get("controlnet_conditioning_scale", 1.0),
         generator=torch.manual_seed(42),
     ).images
 
@@ -218,6 +219,7 @@ def save_epoch_samples(
         control_mode=[5] * len(masks_pil),
         num_inference_steps=steps,
         guidance_scale=cfg.guidance_scale,
+        controlnet_conditioning_scale=cfg.get("controlnet_conditioning_scale", 1.0),
         generator=torch.Generator().manual_seed(epoch),
     ).images
 
