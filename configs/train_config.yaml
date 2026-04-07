@@ -7,11 +7,11 @@ controlnet_model: "xinsir/controlnet-union-sdxl-1.0"  # Pretrained SDXL ControlN
 
 # --- Data ---
 data_dir: "data/processed"
-resolution: 256
+resolution: 512
 apply_lens_simulation: true
 
 # --- Training ---
-train_batch_size: 8                  # 768x768: RTX PRO 6000 ~70-80GB kullanır
+train_batch_size: 4                  # 512x512: RTX PRO 6000 ~40-50GB kullanır
 gradient_accumulation_steps: 8       # effective batch: 8 x 8 = 64
 num_train_epochs: 150
 mixed_precision: "bf16"
@@ -48,4 +48,4 @@ epoch_samples_steps: 50
 validation_prompt: "dermoscopy image of a malignant skin lesion, irregular borders, clinical photography, high quality"
 num_inference_steps: 20
 guidance_scale: 7.5
-controlnet_conditioning_scale: 1.5
+controlnet_conditioning_scale: 1.0
