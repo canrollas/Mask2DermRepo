@@ -197,8 +197,10 @@ def save_epoch_samples(
     for s in chosen:
         m = Image.open(s["mask"]).convert("L").resize(
             (cfg.resolution, cfg.resolution), Image.NEAREST
-        ).convert("RGB")
-        masks_pil.append(m)
+        )
+        # Binarize: ara gri değerleri temizle (NEAREST sonrası kalabilir)
+        m = m.point(lambda p: 255 if p > 127 else 0)
+        masks_pil.append(m.convert("RGB"))
 
     pipeline = StableDiffusionXLControlNetUnionPipeline(
         vae=accelerator.unwrap_model(vae),
@@ -213,13 +215,15 @@ def save_epoch_samples(
     pipeline.set_progress_bar_config(disable=True)
 
     prompt = "dermoscopy image of a malignant skin lesion, irregular borders, clinical photography, high quality"
+    negative_prompt = "blurry, low quality, cartoon, painting, sketch, unrealistic, artifacts, noise, deformed"
     images = pipeline(
         prompt=[prompt] * len(masks_pil),
+        negative_prompt=[negative_prompt] * len(masks_pil),
         control_image=masks_pil,
         control_mode=[5] * len(masks_pil),
         num_inference_steps=steps,
         guidance_scale=cfg.guidance_scale,
-        controlnet_conditioning_scale=cfg.get("controlnet_conditioning_scale", 1.0),
+        controlnet_conditioning_scale=cfg.get("controlnet_conditioning_scale", 1.5),
         generator=torch.Generator().manual_seed(epoch),
     ).images
 

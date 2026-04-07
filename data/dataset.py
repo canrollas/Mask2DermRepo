@@ -205,6 +205,8 @@ class DermoscopyDataset(Dataset):
             pil_img = pil_img.resize((self.resolution, self.resolution), Image.LANCZOS)
 
         pil_mask = pil_mask.resize((self.resolution, self.resolution), Image.NEAREST)
+        # Binarize: ara gri değerleri temizle
+        pil_mask = pil_mask.point(lambda p: 255 if p > 127 else 0)
 
         # Convert mask to 3-channel (ControlNet expects RGB)
         pil_mask_rgb = pil_mask.convert("RGB")
