@@ -3,7 +3,7 @@
 
 # --- Model ---
 base_model: "SG161222/RealVisXL_V4.0"
-controlnet_model: "xinsir/controlnet-union-sdxl-1.0"  # Pretrained SDXL ControlNet (union, supports seg maps)
+controlnet_model: "from_unet"  # Initialize ControlNet from frozen UNet weights (no pretrained seg-map bias)
 
 # --- Data ---
 data_dir: "data/processed"
@@ -19,7 +19,7 @@ dataloader_num_workers: 8
 torch_compile: false                 # SDXL + compile zaman zaman sorun çıkarır
 
 # --- Optimizer (AdamW) ---
-learning_rate: 5.0e-6
+learning_rate: 1.0e-5
 lr_scheduler: "cosine"
 lr_warmup_steps: 1000
 adam_beta1: 0.9

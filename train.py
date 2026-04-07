@@ -46,7 +46,6 @@ from accelerate.utils import ProjectConfiguration, set_seed
 from diffusers import (
     AutoencoderKL,
     ControlNetModel,
-    ControlNetUnionModel,
     DDPMScheduler,
     UNet2DConditionModel,
 )
@@ -132,13 +131,13 @@ def log_validation(
     vae, text_encoder_1, text_encoder_2, tokenizer_1, tokenizer_2,
     unet, controlnet, scheduler, cfg, accelerator, step: int,
 ) -> None:
-    from diffusers import StableDiffusionXLControlNetUnionPipeline, DDIMScheduler
+    from diffusers import StableDiffusionXLControlNetPipeline, DDIMScheduler
     from torchvision.utils import make_grid
     import numpy as np
     from PIL import Image, ImageDraw
 
     console.log("[dim]Running validation...[/dim]")
-    pipeline = StableDiffusionXLControlNetUnionPipeline(
+    pipeline = StableDiffusionXLControlNetPipeline(
         vae=accelerator.unwrap_model(vae),
         text_encoder=accelerator.unwrap_model(text_encoder_1),
         text_encoder_2=accelerator.unwrap_model(text_encoder_2),
@@ -159,8 +158,7 @@ def log_validation(
 
     images = pipeline(
         prompt=[cfg.validation_prompt] * cfg.num_validation_images,
-        control_image=[mask] * cfg.num_validation_images,
-        control_mode=[5] * cfg.num_validation_images,
+        image=[mask] * cfg.num_validation_images,
         num_inference_steps=cfg.num_inference_steps,
         guidance_scale=cfg.guidance_scale,
         controlnet_conditioning_scale=cfg.get("controlnet_conditioning_scale", 1.0),
@@ -179,7 +177,7 @@ def save_epoch_samples(
     vae, text_encoder_1, text_encoder_2, tokenizer_1, tokenizer_2,
     unet, controlnet, scheduler, cfg, accelerator, val_dataset, epoch: int,
 ) -> None:
-    from diffusers import StableDiffusionXLControlNetUnionPipeline, DDIMScheduler
+    from diffusers import StableDiffusionXLControlNetPipeline, DDIMScheduler
     from torchvision.utils import save_image
     import numpy as np
     from PIL import Image
@@ -202,7 +200,7 @@ def save_epoch_samples(
         m = m.point(lambda p: 255 if p > 127 else 0)
         masks_pil.append(m.convert("RGB"))
 
-    pipeline = StableDiffusionXLControlNetUnionPipeline(
+    pipeline = StableDiffusionXLControlNetPipeline(
         vae=accelerator.unwrap_model(vae),
         text_encoder=accelerator.unwrap_model(text_encoder_1),
         text_encoder_2=accelerator.unwrap_model(text_encoder_2),
@@ -219,8 +217,7 @@ def save_epoch_samples(
     images = pipeline(
         prompt=[prompt] * len(masks_pil),
         negative_prompt=[negative_prompt] * len(masks_pil),
-        control_image=masks_pil,
-        control_mode=[5] * len(masks_pil),
+        image=masks_pil,
         num_inference_steps=steps,
         guidance_scale=cfg.guidance_scale,
         controlnet_conditioning_scale=cfg.get("controlnet_conditioning_scale", 1.5),
@@ -303,7 +300,7 @@ def main() -> None:
         noise_scheduler = DDPMScheduler.from_pretrained(cfg.base_model, subfolder="scheduler")
 
         if args.resume_from_checkpoint:
-            controlnet = ControlNetUnionModel.from_pretrained(
+            controlnet = ControlNetModel.from_pretrained(
                 args.resume_from_checkpoint, local_files_only=True
             )
             console.log(f"[green]Resumed ControlNet from[/] {args.resume_from_checkpoint}")
@@ -311,7 +308,7 @@ def main() -> None:
             controlnet = ControlNetModel.from_unet(unet)
             console.log("[green]ControlNet initialized from UNet architecture[/]")
         else:
-            controlnet = ControlNetUnionModel.from_pretrained(
+            controlnet = ControlNetModel.from_pretrained(
                 cfg.controlnet_model, torch_dtype=torch.bfloat16
             )
             console.log(f"[green]Loaded ControlNet from[/] {cfg.controlnet_model}")
@@ -479,18 +476,11 @@ def main() -> None:
                 controlnet_image = batch["conditioning_pixel_values"].to(
                     dtype=latents.dtype
                 )
-                # Union ControlNet: control_type is [B, 6] one-hot, control_type_idx is active indices
-                # Types: 0=openpose, 1=depth, 2=hed, 3=canny, 4=normal, 5=seg
-                control_type = torch.zeros(bsz, 6, device=latents.device, dtype=latents.dtype)
-                control_type[:, 5] = 1.0  # 5 = segmentation
-                control_type_idx = [5]
 
                 down_block_res_samples, mid_block_res_sample = controlnet(
                     noisy_latents, timesteps,
                     encoder_hidden_states=prompt_embeds,
-                    controlnet_cond=[controlnet_image],
-                    control_type=control_type,
-                    control_type_idx=control_type_idx,
+                    controlnet_cond=controlnet_image,
                     added_cond_kwargs=added_cond_kwargs,
                     return_dict=False,
                 )
