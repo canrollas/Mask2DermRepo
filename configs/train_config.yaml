@@ -7,7 +7,7 @@ controlnet_model: "xinsir/controlnet-union-sdxl-1.0"  # Pretrained SDXL ControlN
 
 # --- Data ---
 data_dir: "data/processed"
-resolution: 768
+resolution: 256
 apply_lens_simulation: true
 
 # --- Training ---
