@@ -141,6 +141,8 @@ def _keep_largest_component(binary: torch.Tensor, fill_ratio: float = 0.55) -> t
         # Bounding box
         rows = np.any(largest_mask, axis=1)
         cols = np.any(largest_mask, axis=0)
+        if not rows.any():
+            continue
         rmin, rmax = np.where(rows)[0][[0, -1]]
         cmin, cmax = np.where(cols)[0][[0, -1]]
 
@@ -269,7 +271,9 @@ def generate(args: argparse.Namespace) -> None:
         masks = model.sample(n_batch, device=device, threshold=args.threshold, postprocess=True)
 
         for m in masks:
-            img = Image.fromarray((m.squeeze().cpu().numpy() * 255).astype(np.uint8), mode="L")
+            if m.sum() == 0:  # boş maske, atla
+                continue
+            img = Image.fromarray((m.squeeze().cpu().numpy() * 255).astype(np.uint8))
             img.save(out_dir / f"mask_{saved:05d}.png")
             saved += 1
 
