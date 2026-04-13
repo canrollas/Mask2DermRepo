@@ -54,44 +54,45 @@ class MaskDataset(Dataset):
 # ---------------------------------------------------------------------------
 
 class Encoder(nn.Module):
-    def __init__(self, latent_dim: int):
+    """Fully-convolutional encoder — preserves spatial structure in latent space."""
+    def __init__(self, latent_channels: int = 8):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Conv2d(1,  32,  4, 2, 1), nn.LeakyReLU(0.2),   # 128
-            nn.Conv2d(32, 64,  4, 2, 1), nn.LeakyReLU(0.2),   # 64
-            nn.Conv2d(64, 128, 4, 2, 1), nn.LeakyReLU(0.2),   # 32
-            nn.Conv2d(128, 256, 4, 2, 1), nn.LeakyReLU(0.2),  # 16
+            nn.Conv2d(1,   32,  4, 2, 1), nn.GroupNorm(8, 32),  nn.LeakyReLU(0.2),  # 128
+            nn.Conv2d(32,  64,  4, 2, 1), nn.GroupNorm(8, 64),  nn.LeakyReLU(0.2),  # 64
+            nn.Conv2d(64,  128, 4, 2, 1), nn.GroupNorm(8, 128), nn.LeakyReLU(0.2),  # 32
+            nn.Conv2d(128, 256, 4, 2, 1), nn.GroupNorm(8, 256), nn.LeakyReLU(0.2),  # 16
         )
-        self.fc_mu     = nn.Linear(256 * 16 * 16, latent_dim)
-        self.fc_logvar = nn.Linear(256 * 16 * 16, latent_dim)
+        self.conv_mu     = nn.Conv2d(256, latent_channels, 1)
+        self.conv_logvar = nn.Conv2d(256, latent_channels, 1)
 
     def forward(self, x: torch.Tensor):
-        h = self.net(x).flatten(1)
-        return self.fc_mu(h), self.fc_logvar(h)
+        h = self.net(x)                                   # [B, 256, 16, 16]
+        return self.conv_mu(h), self.conv_logvar(h)       # [B, C, 16, 16]
 
 
 class Decoder(nn.Module):
-    def __init__(self, latent_dim: int):
+    """Fully-convolutional decoder — starts from spatial latent map."""
+    def __init__(self, latent_channels: int = 8):
         super().__init__()
-        self.fc = nn.Linear(latent_dim, 256 * 16 * 16)
         self.net = nn.Sequential(
-            nn.ConvTranspose2d(256, 128, 4, 2, 1), nn.ReLU(),  # 32
-            nn.ConvTranspose2d(128, 64,  4, 2, 1), nn.ReLU(),  # 64
-            nn.ConvTranspose2d(64,  32,  4, 2, 1), nn.ReLU(),  # 128
-            nn.ConvTranspose2d(32,   1,  4, 2, 1),              # 256 — raw logits
+            nn.Conv2d(latent_channels, 256, 1),
+            nn.ConvTranspose2d(256, 128, 4, 2, 1), nn.GroupNorm(8, 128), nn.ReLU(),  # 32
+            nn.ConvTranspose2d(128, 64,  4, 2, 1), nn.GroupNorm(8, 64),  nn.ReLU(),  # 64
+            nn.ConvTranspose2d(64,  32,  4, 2, 1), nn.GroupNorm(8, 32),  nn.ReLU(),  # 128
+            nn.ConvTranspose2d(32,   1,  4, 2, 1),                                    # 256 logits
         )
 
     def forward(self, z: torch.Tensor) -> torch.Tensor:
-        h = self.fc(z).view(-1, 256, 16, 16)
-        return self.net(h)
+        return self.net(z)
 
 
 class MaskVAE(nn.Module):
-    def __init__(self, latent_dim: int = 128):
+    def __init__(self, latent_channels: int = 8):
         super().__init__()
-        self.encoder = Encoder(latent_dim)
-        self.decoder = Decoder(latent_dim)
-        self.latent_dim = latent_dim
+        self.encoder = Encoder(latent_channels)
+        self.decoder = Decoder(latent_channels)
+        self.latent_channels = latent_channels
 
     def reparameterize(self, mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
         std = torch.exp(0.5 * logvar)
@@ -105,7 +106,7 @@ class MaskVAE(nn.Module):
     @torch.no_grad()
     def sample(self, n: int, device: str = "cuda", threshold: float = 0.5,
                postprocess: bool = True) -> torch.Tensor:
-        z = torch.randn(n, self.latent_dim, device=device)
+        z = torch.randn(n, self.latent_channels, 16, 16, device=device)
         soft = torch.sigmoid(self.decoder(z))
         binary = (soft >= threshold).float()
         if postprocess:
@@ -160,7 +161,7 @@ def train(args: argparse.Namespace) -> None:
     loader  = DataLoader(dataset, batch_size=args.batch_size,
                          shuffle=True, num_workers=4, pin_memory=True)
 
-    model = MaskVAE(latent_dim=args.latent_dim).to(device)
+    model = MaskVAE(latent_channels=args.latent_channels).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
     best_loss = float("inf")
@@ -214,7 +215,7 @@ def generate(args: argparse.Namespace) -> None:
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    model = MaskVAE(latent_dim=args.latent_dim).to(device)
+    model = MaskVAE(latent_channels=args.latent_channels).to(device)
     model.load_state_dict(torch.load(args.checkpoint, map_location=device))
     model.eval()
 
@@ -239,9 +240,10 @@ def main() -> None:
     # --- train ---
     t = sub.add_parser("train")
     t.add_argument("--mask_dir",       required=True)
-    t.add_argument("--resolution",     type=int,   default=256)
-    t.add_argument("--latent_dim",     type=int,   default=128)
-    t.add_argument("--epochs",         type=int,   default=100)
+    t.add_argument("--resolution",       type=int,   default=256)
+    t.add_argument("--latent_channels",  type=int,   default=8,
+                   help="Spatial latent channels (8→16×16×8=2048 latent dims)")
+    t.add_argument("--epochs",           type=int,   default=100)
     t.add_argument("--batch_size",     type=int,   default=32)
     t.add_argument("--lr",             type=float, default=1e-3)
     t.add_argument("--beta",           type=float, default=1.0,
@@ -250,10 +252,10 @@ def main() -> None:
 
     # --- generate ---
     g = sub.add_parser("generate")
-    g.add_argument("--checkpoint",  required=True, help="Path to best.pt or last.pt")
-    g.add_argument("--n",           type=int,   default=16,  help="Number of masks to generate")
-    g.add_argument("--latent_dim",  type=int,   default=128)
-    g.add_argument("--threshold",   type=float, default=0.5, help="Binarization threshold")
+    g.add_argument("--checkpoint",      required=True, help="Path to best.pt or last.pt")
+    g.add_argument("--n",               type=int,   default=16,  help="Number of masks to generate")
+    g.add_argument("--latent_channels", type=int,   default=8)
+    g.add_argument("--threshold",       type=float, default=0.5, help="Binarization threshold")
     g.add_argument("--out_dir",     default="outputs/masks_generated")
 
     args = parser.parse_args()
