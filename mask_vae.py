@@ -130,8 +130,9 @@ def _keep_largest_component(binary: torch.Tensor, fill_ratio: float = 0.55) -> t
         sizes = ndimage.sum(mask_np, labeled, range(1, num + 1))
         largest_mask = labeled == (np.argmax(sizes) + 1)
 
-        # Morphological closing to fill holes
+        # Morphological closing to connect near-gaps, then fill all enclosed holes
         largest_mask = ndimage.binary_closing(largest_mask, structure=np.ones((7, 7)), iterations=2)
+        largest_mask = ndimage.binary_fill_holes(largest_mask)
 
         # Bounding box
         rows = np.any(largest_mask, axis=1)
