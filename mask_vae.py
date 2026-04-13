@@ -21,6 +21,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from PIL import Image
+from scipy import ndimage
 from torch.utils.data import DataLoader, Dataset
 from torchvision.utils import save_image
 from tqdm import tqdm
@@ -102,10 +103,36 @@ class MaskVAE(nn.Module):
         return self.decoder(z), mu, logvar
 
     @torch.no_grad()
-    def sample(self, n: int, device: str = "cuda", threshold: float = 0.5) -> torch.Tensor:
+    def sample(self, n: int, device: str = "cuda", threshold: float = 0.5,
+               postprocess: bool = True) -> torch.Tensor:
         z = torch.randn(n, self.latent_dim, device=device)
         soft = torch.sigmoid(self.decoder(z))
-        return (soft >= threshold).float()
+        binary = (soft >= threshold).float()
+        if postprocess:
+            binary = _keep_largest_component(binary)
+        return binary
+
+
+# ---------------------------------------------------------------------------
+# Post-processing
+# ---------------------------------------------------------------------------
+
+def _keep_largest_component(binary: torch.Tensor) -> torch.Tensor:
+    """Keep only the largest connected component per mask, then apply closing."""
+    struct = ndimage.generate_binary_structure(2, 2)  # 8-connectivity
+    result = binary.clone()
+    for i in range(binary.shape[0]):
+        mask_np = binary[i, 0].cpu().numpy().astype(bool)
+        labeled, num = ndimage.label(mask_np)
+        if num == 0:
+            continue
+        sizes = ndimage.sum(mask_np, labeled, range(1, num + 1))
+        largest = np.argmax(sizes) + 1
+        largest_mask = labeled == largest
+        # Morphological closing to fill small holes
+        closed = ndimage.binary_closing(largest_mask, structure=np.ones((9, 9)), iterations=2)
+        result[i, 0] = torch.from_numpy(closed.astype(np.float32)).to(binary.device)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -191,7 +218,7 @@ def generate(args: argparse.Namespace) -> None:
     model.load_state_dict(torch.load(args.checkpoint, map_location=device))
     model.eval()
 
-    masks = model.sample(args.n, device=device, threshold=args.threshold)
+    masks = model.sample(args.n, device=device, threshold=args.threshold, postprocess=True)
 
     for i, m in enumerate(masks):
         img = Image.fromarray((m.squeeze().cpu().numpy() * 255).astype(np.uint8), mode="L")
