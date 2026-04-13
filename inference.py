@@ -75,7 +75,6 @@ def load_pipeline(
         except Exception:
             pipe.enable_attention_slicing()
         try:
-            import torch._dynamo
             pipe.unet = torch.compile(pipe.unet, mode="reduce-overhead", fullgraph=True)
             print("torch.compile aktif (ilk batch yavaş, sonrası hızlı)")
         except Exception:
