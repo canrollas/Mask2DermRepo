@@ -166,6 +166,12 @@ def _keep_largest_component(binary: torch.Tensor, fill_ratio: float = 0.55) -> t
         smoothed = ndimage.gaussian_filter(canvas, sigma=6)
         canvas = (smoothed >= 0.35).astype(np.float32)
 
+        # Final pass: blur sonrası oluşan küçük parçaları temizle
+        lbl, n = ndimage.label(canvas)
+        if n > 1:
+            sizes = ndimage.sum(canvas, lbl, range(1, n + 1))
+            canvas = (lbl == (np.argmax(sizes) + 1)).astype(np.float32)
+
         result[i, 0] = torch.from_numpy(canvas).to(binary.device)
     return result
 
