@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import random
 from pathlib import Path
 
 import cv2
@@ -40,6 +41,9 @@ from tqdm import tqdm
 import sys
 sys.path.insert(0, str(Path(__file__).parent))
 from data.preprocessing import apply_barrel_distortion, apply_vignetting, apply_circular_mask
+from data.dataset import _BENIGN_PROMPTS, _MALIGNANT_PROMPTS, _GENERIC_PROMPTS
+
+_ALL_PROMPTS = _BENIGN_PROMPTS + _MALIGNANT_PROMPTS + _GENERIC_PROMPTS
 
 
 # ---------------------------------------------------------------------------
@@ -207,23 +211,38 @@ def main() -> None:
         mask_paths = sorted(mask_dir.glob("*.png")) + sorted(mask_dir.glob("*.jpg"))
         print(f"Found {len(mask_paths)} masks in {mask_dir}. Generating…")
 
+        # Filter already-generated
+        pending = [(i, mp) for i, mp in enumerate(mask_paths)
+                   if not (out_dir / f"{mp.stem}_generated.png").exists()]
+        print(f"{len(mask_paths) - len(pending)} already done, {len(pending)} remaining.")
+
         all_masks, all_generated = [], []
 
-        for i, mp in enumerate(tqdm(mask_paths, unit="img")):
-            out_path = out_dir / f"{mp.stem}_generated.png"
-            if out_path.exists():
-                continue  # skip already generated
+        for batch_start in tqdm(range(0, len(pending), args.batch_size), unit="batch"):
+            batch = pending[batch_start: batch_start + args.batch_size]
+            idxs, paths = zip(*batch)
 
-            mask = load_mask(mp, size=args.resolution)
-            seed = args.seed + i  # vary seed per image for diversity
-            img = generate_image(pipe, mask, args.prompt, args.negative_prompt,
-                                 args.num_steps, args.guidance_scale,
-                                 args.controlnet_scale, seed)
-            img.save(out_path)
+            masks   = [load_mask(mp, size=args.resolution) for mp in paths]
+            prompts = [random.choice(_ALL_PROMPTS) for _ in masks]
+            neg     = [args.negative_prompt] * len(masks)
+            generator = torch.Generator(device=args.device).manual_seed(args.seed + batch_start)
 
-            if args.save_grid:
-                all_masks.append(mask)
-                all_generated.append(img)
+            results = pipe(
+                prompt=prompts,
+                negative_prompt=neg,
+                image=masks,
+                num_inference_steps=args.num_steps,
+                guidance_scale=args.guidance_scale,
+                controlnet_conditioning_scale=args.controlnet_scale,
+                generator=generator,
+            ).images
+
+            for mp, img in zip(paths, results):
+                img = apply_optics(img)
+                img.save(out_dir / f"{mp.stem}_generated.png")
+                if args.save_grid:
+                    all_masks.append(load_mask(mp, size=args.resolution))
+                    all_generated.append(img)
 
         if args.save_grid and all_generated:
             save_comparison_grid(all_masks[:16], all_generated[:16],
