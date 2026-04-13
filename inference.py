@@ -32,7 +32,7 @@ import numpy as np
 import torch
 from diffusers import (
     ControlNetModel,
-    DDIMScheduler,
+    DPMSolverMultistepScheduler,
     StableDiffusionXLControlNetPipeline,
 )
 from PIL import Image
@@ -63,10 +63,23 @@ def load_pipeline(
         controlnet=controlnet,
         torch_dtype=torch_dtype,
     )
-    pipe.scheduler = DDIMScheduler.from_config(pipe.scheduler.config)
-    pipe.enable_attention_slicing()
+    # DPM-Solver++: DDIM'den ~35% hızlı, 15 adımda yeterli kalite
+    pipe.scheduler = DPMSolverMultistepScheduler.from_config(
+        pipe.scheduler.config, use_karras_sigmas=True
+    )
     if device == "cuda" and torch.cuda.is_available():
         pipe.to("cuda")
+        try:
+            pipe.enable_xformers_memory_efficient_attention()
+            print("xformers aktif")
+        except Exception:
+            pipe.enable_attention_slicing()
+        try:
+            import torch._dynamo
+            pipe.unet = torch.compile(pipe.unet, mode="reduce-overhead", fullgraph=True)
+            print("torch.compile aktif (ilk batch yavaş, sonrası hızlı)")
+        except Exception:
+            pass
     return pipe
 
 
