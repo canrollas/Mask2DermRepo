@@ -248,14 +248,25 @@ def generate(args: argparse.Namespace) -> None:
     model.load_state_dict(torch.load(args.checkpoint, map_location=device))
     model.eval()
 
-    masks = model.sample(args.n, device=device, threshold=args.threshold, postprocess=True)
+    batch_size = args.gen_batch_size
+    total = args.n
+    saved = 0
+    grid_saved = False
 
-    for i, m in enumerate(masks):
-        img = Image.fromarray((m.squeeze().cpu().numpy() * 255).astype(np.uint8), mode="L")
-        img.save(out_dir / f"mask_{i:04d}.png")
+    for start in tqdm(range(0, total, batch_size), desc="Generating"):
+        n_batch = min(batch_size, total - start)
+        masks = model.sample(n_batch, device=device, threshold=args.threshold, postprocess=True)
 
-    save_image(masks, out_dir / "grid.png", nrow=4, pad_value=0.5)
-    print(f"{args.n} masks saved → {out_dir}")
+        for m in masks:
+            img = Image.fromarray((m.squeeze().cpu().numpy() * 255).astype(np.uint8), mode="L")
+            img.save(out_dir / f"mask_{saved:05d}.png")
+            saved += 1
+
+        if not grid_saved:
+            save_image(masks[:16], out_dir / "grid.png", nrow=4, pad_value=0.5)
+            grid_saved = True
+
+    print(f"{saved} masks saved → {out_dir}")
 
 
 # ---------------------------------------------------------------------------
@@ -285,6 +296,7 @@ def main() -> None:
     g.add_argument("--n",               type=int,   default=16,  help="Number of masks to generate")
     g.add_argument("--latent_channels", type=int,   default=8)
     g.add_argument("--threshold",       type=float, default=0.5, help="Binarization threshold")
+    g.add_argument("--gen_batch_size",  type=int,   default=32,  help="GPU batch size for generation")
     g.add_argument("--out_dir",     default="outputs/masks_generated")
 
     args = parser.parse_args()
