@@ -77,7 +77,7 @@ class Decoder(nn.Module):
             nn.ConvTranspose2d(256, 128, 4, 2, 1), nn.ReLU(),  # 32
             nn.ConvTranspose2d(128, 64,  4, 2, 1), nn.ReLU(),  # 64
             nn.ConvTranspose2d(64,  32,  4, 2, 1), nn.ReLU(),  # 128
-            nn.ConvTranspose2d(32,   1,  4, 2, 1), nn.Sigmoid(), # 256
+            nn.ConvTranspose2d(32,   1,  4, 2, 1),              # 256 — raw logits
         )
 
     def forward(self, z: torch.Tensor) -> torch.Tensor:
@@ -104,7 +104,7 @@ class MaskVAE(nn.Module):
     @torch.no_grad()
     def sample(self, n: int, device: str = "cuda", threshold: float = 0.5) -> torch.Tensor:
         z = torch.randn(n, self.latent_dim, device=device)
-        soft = self.decoder(z)
+        soft = torch.sigmoid(self.decoder(z))
         return (soft >= threshold).float()
 
 
@@ -112,10 +112,10 @@ class MaskVAE(nn.Module):
 # Loss
 # ---------------------------------------------------------------------------
 
-def vae_loss(recon: torch.Tensor, x: torch.Tensor,
+def vae_loss(recon_logits: torch.Tensor, x: torch.Tensor,
              mu: torch.Tensor, logvar: torch.Tensor,
              beta: float = 1.0) -> tuple[torch.Tensor, float, float]:
-    bce = F.binary_cross_entropy(recon.clamp(1e-6, 1 - 1e-6), x, reduction="sum") / x.size(0)
+    bce = F.binary_cross_entropy_with_logits(recon_logits, x, reduction="sum") / x.size(0)
     kl  = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
     return bce + beta * kl, bce.item(), kl.item()
 
@@ -148,6 +148,7 @@ def train(args: argparse.Namespace) -> None:
 
             optimizer.zero_grad()
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
 
             total_loss += loss.item()
