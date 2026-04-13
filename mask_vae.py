@@ -118,21 +118,46 @@ class MaskVAE(nn.Module):
 # Post-processing
 # ---------------------------------------------------------------------------
 
-def _keep_largest_component(binary: torch.Tensor) -> torch.Tensor:
-    """Keep only the largest connected component per mask, then apply closing."""
-    struct = ndimage.generate_binary_structure(2, 2)  # 8-connectivity
-    result = binary.clone()
+def _keep_largest_component(binary: torch.Tensor, fill_ratio: float = 0.55) -> torch.Tensor:
+    """Keep largest component, center it, and scale to fill fill_ratio of the canvas."""
+    H, W = binary.shape[2], binary.shape[3]
+    result = torch.zeros_like(binary)
     for i in range(binary.shape[0]):
         mask_np = binary[i, 0].cpu().numpy().astype(bool)
         labeled, num = ndimage.label(mask_np)
         if num == 0:
             continue
         sizes = ndimage.sum(mask_np, labeled, range(1, num + 1))
-        largest = np.argmax(sizes) + 1
-        largest_mask = labeled == largest
-        # Morphological closing to fill small holes
-        closed = ndimage.binary_closing(largest_mask, structure=np.ones((9, 9)), iterations=2)
-        result[i, 0] = torch.from_numpy(closed.astype(np.float32)).to(binary.device)
+        largest_mask = labeled == (np.argmax(sizes) + 1)
+
+        # Morphological closing to fill holes
+        largest_mask = ndimage.binary_closing(largest_mask, structure=np.ones((7, 7)), iterations=2)
+
+        # Bounding box
+        rows = np.any(largest_mask, axis=1)
+        cols = np.any(largest_mask, axis=0)
+        rmin, rmax = np.where(rows)[0][[0, -1]]
+        cmin, cmax = np.where(cols)[0][[0, -1]]
+
+        # Crop
+        cropped = largest_mask[rmin:rmax+1, cmin:cmax+1].astype(np.uint8)
+        ch, cw = cropped.shape
+
+        # Scale so the longer side = fill_ratio * canvas size
+        scale = (fill_ratio * min(H, W)) / max(ch, cw)
+        new_h = max(1, int(ch * scale))
+        new_w = max(1, int(cw * scale))
+        scaled = np.array(
+            Image.fromarray(cropped * 255).resize((new_w, new_h), Image.NEAREST)
+        ) // 255
+
+        # Place at center
+        canvas = np.zeros((H, W), dtype=np.float32)
+        r0 = (H - new_h) // 2
+        c0 = (W - new_w) // 2
+        canvas[r0:r0+new_h, c0:c0+new_w] = scaled
+
+        result[i, 0] = torch.from_numpy(canvas).to(binary.device)
     return result
 
 
