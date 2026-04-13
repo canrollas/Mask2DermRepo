@@ -130,9 +130,13 @@ def _keep_largest_component(binary: torch.Tensor, fill_ratio: float = 0.55) -> t
         sizes = ndimage.sum(mask_np, labeled, range(1, num + 1))
         largest_mask = labeled == (np.argmax(sizes) + 1)
 
-        # Morphological closing to connect near-gaps, then fill all enclosed holes
+        # Closing → fill holes → opening with disk (rounds corners, removes grid artifacts)
         largest_mask = ndimage.binary_closing(largest_mask, structure=np.ones((7, 7)), iterations=2)
         largest_mask = ndimage.binary_fill_holes(largest_mask)
+        r = 6
+        y, x = np.ogrid[-r:r+1, -r:r+1]
+        disk = x**2 + y**2 <= r**2
+        largest_mask = ndimage.binary_opening(largest_mask, structure=disk)
 
         # Bounding box
         rows = np.any(largest_mask, axis=1)
@@ -159,8 +163,8 @@ def _keep_largest_component(binary: torch.Tensor, fill_ratio: float = 0.55) -> t
         canvas[r0:r0+new_h, c0:c0+new_w] = scaled
 
         # Smooth edges: Gaussian blur + re-threshold
-        smoothed = ndimage.gaussian_filter(canvas, sigma=4)
-        canvas = (smoothed >= 0.3).astype(np.float32)
+        smoothed = ndimage.gaussian_filter(canvas, sigma=6)
+        canvas = (smoothed >= 0.35).astype(np.float32)
 
         result[i, 0] = torch.from_numpy(canvas).to(binary.device)
     return result
