@@ -157,6 +157,10 @@ def _keep_largest_component(binary: torch.Tensor, fill_ratio: float = 0.55) -> t
         c0 = (W - new_w) // 2
         canvas[r0:r0+new_h, c0:c0+new_w] = scaled
 
+        # Smooth edges: Gaussian blur + re-threshold
+        smoothed = ndimage.gaussian_filter(canvas, sigma=4)
+        canvas = (smoothed >= 0.3).astype(np.float32)
+
         result[i, 0] = torch.from_numpy(canvas).to(binary.device)
     return result
 
