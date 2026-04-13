@@ -141,10 +141,14 @@ def train(args: argparse.Namespace) -> None:
         model.train()
         total_loss = total_bce = total_kl = 0.0
 
+        # KL annealing: 0'dan args.beta'ya ilk %30 epoch'ta lineer artış
+        warmup_epochs = max(1, int(args.epochs * 0.30))
+        beta = args.beta * min(1.0, epoch / warmup_epochs)
+
         for x in tqdm(loader, desc=f"Epoch {epoch}/{args.epochs}", leave=False):
             x = x.to(device)
             recon, mu, logvar = model(x)
-            loss, bce, kl = vae_loss(recon, x, mu, logvar, beta=args.beta)
+            loss, bce, kl = vae_loss(recon, x, mu, logvar, beta=beta)
 
             optimizer.zero_grad()
             loss.backward()
@@ -156,7 +160,7 @@ def train(args: argparse.Namespace) -> None:
             total_kl   += kl
 
         n = len(loader)
-        print(f"Epoch {epoch:>4} | loss={total_loss/n:.4f}  "
+        print(f"Epoch {epoch:>4} | beta={beta:.3f}  loss={total_loss/n:.4f}  "
               f"bce={total_bce/n:.4f}  kl={total_kl/n:.4f}")
 
         # Save best
