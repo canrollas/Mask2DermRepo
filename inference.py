@@ -74,11 +74,6 @@ def load_pipeline(
             print("xformers aktif")
         except Exception:
             pipe.enable_attention_slicing()
-        try:
-            pipe.unet = torch.compile(pipe.unet, mode="reduce-overhead", fullgraph=True)
-            print("torch.compile aktif (ilk batch yavaş, sonrası hızlı)")
-        except Exception:
-            pass
     return pipe
 
 
