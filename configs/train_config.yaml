@@ -46,6 +46,6 @@ epoch_samples_steps: 50
 
 # --- Inference defaults ---
 validation_prompt: "dermoscopy image of a malignant skin lesion, irregular borders, clinical photography, high quality"
-num_inference_steps: 20
-guidance_scale: 7.5
-controlnet_conditioning_scale: 1.0
+num_inference_steps: 30
+guidance_scale: 9.0
+controlnet_conditioning_scale: 0.8

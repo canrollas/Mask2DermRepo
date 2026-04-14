@@ -48,17 +48,34 @@ _BENIGN_PROMPTS = [
     "dermoscopy image of a benign skin lesion, clinical photography, high quality",
     "dermoscopic view of a benign nevus, uniform pigmentation, clinical setting",
     "high quality dermoscopy of a benign melanocytic lesion",
+    "dermoscopy of a benign compound nevus, regular pigment network, brown tones",
+    "dermoscopic image of a seborrheic keratosis, stuck-on appearance, tan and brown",
+    "clinical dermoscopy of a benign junctional nevus, homogeneous pattern",
+    "dermoscopy of a dermatofibroma, central white scar-like patch, light brown halo",
+    "dermoscopic view of a benign lesion with regular globules, brownish coloration",
+    "high resolution dermoscopy of a benign skin lesion, well-defined borders, even tone",
+    "dermoscopy image of a benign melanocytic nevus, symmetric dots and globules",
 ]
 
 _MALIGNANT_PROMPTS = [
     "dermoscopy image of a malignant skin lesion, irregular borders, clinical photography",
     "dermoscopic view of melanoma with asymmetric pigmentation, clinical setting",
     "high quality dermoscopy of a malignant skin lesion with variegated color",
+    "dermoscopy of melanoma with blue-white veil, irregular pigmentation, dark brown",
+    "clinical dermoscopy of basal cell carcinoma, arborizing vessels, translucent",
+    "dermoscopic image of melanoma, atypical network, regression structures",
+    "dermoscopy of a malignant lesion with multiple colors, brown black and gray tones",
+    "high quality dermoscopy of melanoma with radial streaks and irregular border",
+    "dermoscopic view of malignant melanoma, shiny white structures, red milky areas",
+    "dermoscopy of actinic keratosis, strawberry pattern, erythematous background",
 ]
 
 _GENERIC_PROMPTS = [
     "dermoscopy image of a skin lesion, clinical photography, high quality",
     "dermoscopic view of a skin lesion, clinical setting",
+    "clinical dermoscopy photograph of a skin lesion, realistic texture",
+    "dermoscopy image of a pigmented skin lesion, natural skin tones",
+    "high quality dermoscopic image, realistic dermoscopy photography",
 ]
 
 
@@ -120,10 +137,13 @@ class DermoscopyDataset(Dataset):
         self._aug_geom = transforms.Compose([
             transforms.RandomHorizontalFlip(p=0.5),
             transforms.RandomVerticalFlip(p=0.5),
+            transforms.RandomRotation(degrees=30),
         ]) if self.augment else None
         # Color jitter — applied to image ONLY (mask must stay binary)
+        # Stronger jitter forces the model to learn color-invariant features,
+        # preventing mode collapse to a single hue (e.g. pink/magenta).
         self._aug_color = transforms.ColorJitter(
-            brightness=0.1, contrast=0.1, saturation=0.1, hue=0.02,
+            brightness=0.3, contrast=0.3, saturation=0.4, hue=0.08,
         ) if self.augment else None
 
         # Normalisation to [-1, 1] for diffusion model input

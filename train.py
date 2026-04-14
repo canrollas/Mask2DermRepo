@@ -213,14 +213,17 @@ def save_epoch_samples(
     pipeline.set_progress_bar_config(disable=True)
 
     prompt = "dermoscopy image of a malignant skin lesion, irregular borders, clinical photography, high quality"
-    negative_prompt = "blurry, low quality, cartoon, painting, sketch, unrealistic, artifacts, noise, deformed"
+    negative_prompt = (
+        "blurry, low quality, cartoon, painting, sketch, unrealistic, artifacts, noise, deformed, "
+        "pink, magenta, purple tint, color cast, oversaturated, neon colors, artificial colors"
+    )
     images = pipeline(
         prompt=[prompt] * len(masks_pil),
         negative_prompt=[negative_prompt] * len(masks_pil),
         image=masks_pil,
         num_inference_steps=steps,
         guidance_scale=cfg.guidance_scale,
-        controlnet_conditioning_scale=cfg.get("controlnet_conditioning_scale", 1.5),
+        controlnet_conditioning_scale=cfg.get("controlnet_conditioning_scale", 0.8),
         generator=torch.Generator().manual_seed(epoch),
     ).images
 

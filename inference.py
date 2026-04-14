@@ -158,13 +158,15 @@ def parse_args() -> argparse.Namespace:
                         help="Generation prompt")
     parser.add_argument("--negative_prompt",
                         default="blurry, low quality, cartoon, painting, sketch, "
-                                "unrealistic, artifacts",
+                                "unrealistic, artifacts, pink, magenta, purple tint, "
+                                "color cast, oversaturated, neon colors, artificial colors, "
+                                "illustration, digital art",
                         help="Negative prompt")
 
     # Generation params
     parser.add_argument("--num_steps", type=int, default=50, help="DDIM inference steps")
-    parser.add_argument("--guidance_scale", type=float, default=7.5)
-    parser.add_argument("--controlnet_scale", type=float, default=1.0,
+    parser.add_argument("--guidance_scale", type=float, default=9.0)
+    parser.add_argument("--controlnet_scale", type=float, default=0.8,
                         help="ControlNet conditioning scale")
     parser.add_argument("--resolution", type=int, default=1024)
     parser.add_argument("--seed", type=int, default=42)
@@ -232,7 +234,10 @@ def main() -> None:
             masks   = [load_mask(mp, size=args.resolution) for mp in paths]
             prompts = [random.choice(_ALL_PROMPTS) for _ in masks]
             neg     = [args.negative_prompt] * len(masks)
-            generator = torch.Generator(device=args.device).manual_seed(args.seed + batch_start)
+            # Use a unique seed per image (based on global index) so each output
+            # draws from a different point in the noise space → more diversity.
+            seed_val = args.seed + idxs[0] if args.seed is not None else random.randint(0, 2**32 - 1)
+            generator = torch.Generator(device=args.device).manual_seed(seed_val)
 
             results = pipe(
                 prompt=prompts,
