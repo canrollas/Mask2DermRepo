@@ -345,8 +345,8 @@ def main() -> None:
         unet.enable_xformers_memory_efficient_attention()
         controlnet.enable_xformers_memory_efficient_attention()
         console.log("[green]xformers memory efficient attention aktif[/]")
-    except Exception:
-        console.log("[yellow]xformers bulunamadı, standart attention kullanılıyor[/]")
+    except Exception as e:
+        console.log(f"[yellow]xformers aktif edilemedi: {e}[/]")
 
     # ------------------------------------------------------------------
     # Optimizer
