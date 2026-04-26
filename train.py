@@ -607,13 +607,17 @@ def main() -> None:
                 console.log(f"[red]UYARI: Checkpoint kaydedilemedi (epoch {epoch_1idx}): {e}[/]")
                 console.log("[yellow]Training devam ediyor — bir sonraki epoch'ta tekrar denenecek.[/]")
 
-            try:
-                save_epoch_samples(
-                    vae, text_encoder_1, text_encoder_2, tokenizer_1, tokenizer_2,
-                    unet, controlnet, noise_scheduler, cfg, accelerator, val_dataset, epoch_1idx,
-                )
-            except Exception as e:
-                console.log(f"[red]UYARI: Epoch sample üretilemedi (epoch {epoch_1idx}): {e}[/]")
+            sample_every = cfg.get("save_samples_every_n_epochs", 5)
+            if epoch_1idx % sample_every == 0:
+                try:
+                    save_epoch_samples(
+                        vae, text_encoder_1, text_encoder_2, tokenizer_1, tokenizer_2,
+                        unet, controlnet, noise_scheduler, cfg, accelerator, val_dataset, epoch_1idx,
+                    )
+                except Exception as e:
+                    console.log(f"[red]UYARI: Epoch sample üretilemedi (epoch {epoch_1idx}): {e}[/]")
+            else:
+                console.log(f"[dim]Sample atlandı (epoch {epoch_1idx}, sonraki: {(epoch_1idx // sample_every + 1) * sample_every})[/]")
 
     if accelerator.is_main_process:
         final_path = Path(cfg.get("checkpoint_dir", cfg.output_dir)) / "controlnet-final"

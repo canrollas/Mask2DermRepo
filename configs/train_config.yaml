@@ -41,8 +41,9 @@ tracker: "wandb"
 tracker_project: "mask2derm"
 
 # --- Epoch samples ---
-num_epoch_samples: 4
-epoch_samples_steps: 50
+num_epoch_samples: 2
+epoch_samples_steps: 15
+save_samples_every_n_epochs: 5
 
 # --- Inference defaults ---
 validation_prompt: "dermoscopy image of a malignant skin lesion, irregular borders, clinical photography, high quality"
