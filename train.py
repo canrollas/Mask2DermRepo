@@ -326,6 +326,14 @@ def main() -> None:
     text_encoder_2.requires_grad_(False)
     controlnet.train()
 
+    # torch.compile: ilk epoch yavaş (derleme), sonraki epochlar %20-30 hızlı.
+    if cfg.get("torch_compile", False):
+        try:
+            controlnet = torch.compile(controlnet, mode="reduce-overhead")
+            console.log("[green]torch.compile aktif (reduce-overhead)[/]")
+        except Exception as e:
+            console.log(f"[yellow]torch.compile başarısız: {e}[/]")
+
     # xformers: T4/A100'de attention'ı %20-40 hızlandırır, bellek düşürür.
     # Yoksa sessizce atlar.
     try:
