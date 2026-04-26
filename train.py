@@ -339,6 +339,15 @@ def main() -> None:
     text_encoder_2.requires_grad_(False)
     controlnet.train()
 
+    # xformers: T4/A100'de attention'ı %20-40 hızlandırır, bellek düşürür.
+    # Yoksa sessizce atlar.
+    try:
+        unet.enable_xformers_memory_efficient_attention()
+        controlnet.enable_xformers_memory_efficient_attention()
+        console.log("[green]xformers memory efficient attention aktif[/]")
+    except Exception:
+        console.log("[yellow]xformers bulunamadı, standart attention kullanılıyor[/]")
+
     # ------------------------------------------------------------------
     # Optimizer
     # ------------------------------------------------------------------
