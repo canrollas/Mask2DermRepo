@@ -8,7 +8,7 @@ controlnet_model: "from_unet"  # Initialize ControlNet from frozen UNet weights 
 # --- Data ---
 data_dir: "data/processed"
 resolution: 512
-apply_lens_simulation: true
+apply_lens_simulation: false
 
 # --- Training ---
 train_batch_size: 20                 # Blackwell 100GB: ~84GB kullanır

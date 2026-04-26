@@ -160,17 +160,18 @@ def download_ham10000(out_dir: Path = RAW_DIR / "ham10000") -> None:
 # ---------------------------------------------------------------------------
 
 def _resize_and_save(src: Path, dst: Path, size: int, is_mask: bool = False) -> None:
+    from data.preprocessing import standardize_pil
     img = Image.open(src)
     if is_mask:
         img = img.convert("L")
         img = img.resize((size, size), Image.NEAREST)
-        # Binarise
         arr = (np.asarray(img) > 127).astype("uint8") * 255
         Image.fromarray(arr).save(dst)
     else:
-        img = img.convert("RGB")
-        img = img.resize((size, size), Image.LANCZOS)
-        img.save(dst, quality=95)
+        # Lens simulation (barrel distortion + vignetting + circular mask) diske bir kez uygulanır.
+        # Training'de apply_lens_simulation: false yapılmalı — zaten baked-in.
+        out = standardize_pil(img, size=size)
+        out.save(dst, quality=95)
 
 
 def prepare_dataset(
