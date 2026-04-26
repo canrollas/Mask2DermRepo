@@ -258,27 +258,14 @@ def save_epoch_samples(
 # Rich UI helpers
 # ---------------------------------------------------------------------------
 
-def print_step(epoch, total_epochs, step, total_steps, loss, lr):
-    pct = step / total_steps * 100
-    bar_len = 30
-    filled = int(bar_len * step / total_steps)
-    bar = "█" * filled + "░" * (bar_len - filled)
-    console.print(
-        f"  [cyan]E[bold]{epoch:>3}/{total_epochs}[/bold][/cyan]"
-        f"  [blue]{bar}[/blue]"
-        f"  [white]{step:>4}/{total_steps}[/white] ({pct:5.1f}%)"
-        f"  loss=[yellow]{loss:.4f}[/yellow]"
-        f"  lr=[dim]{lr:.2e}[/dim]",
-        highlight=False,
-    )
-
-
 def print_epoch_summary(epoch, total_epochs, avg_loss, best_loss, elapsed):
     mins, secs = divmod(int(elapsed), 60)
-    print(f"\n{'='*60}")
-    print(f"  EPOCH {epoch}/{total_epochs} DONE  |  {mins}m {secs}s")
-    print(f"  Avg loss: {avg_loss:.5f}  |  Best: {best_loss:.5f}")
-    print(f"{'='*60}\n", flush=True)
+    console.print(
+        f"[bold]Epoch {epoch}/{total_epochs}[/bold]  "
+        f"loss=[yellow]{avg_loss:.5f}[/yellow]  "
+        f"best=[green]{best_loss:.5f}[/green]  "
+        f"[dim]{mins}m {secs}s[/dim]"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -438,7 +425,6 @@ def main() -> None:
     global_step = 0
     best_loss   = float("inf")
     start_epoch = 0
-    log_every   = cfg.get("logging_steps", 50)
 
     if args.resume_from_checkpoint:
         ckpt_path  = Path(args.resume_from_checkpoint)
