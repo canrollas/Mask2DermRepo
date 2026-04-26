@@ -11,7 +11,7 @@ resolution: 512
 apply_lens_simulation: true
 
 # --- Training ---
-train_batch_size: 12                 # Blackwell 100GB: ~68GB kullanır, 16'ya çıkabilir
+train_batch_size: 20                 # Blackwell 100GB: ~84GB kullanır
 gradient_accumulation_steps: 8       # effective batch: 8 x 8 = 64
 num_train_epochs: 150
 mixed_precision: "bf16"
