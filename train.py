@@ -530,24 +530,14 @@ def main() -> None:
                     added_cond_kwargs=added_cond_kwargs,
                 ).sample
 
-                # Min-SNR gamma loss weighting (gamma=5): yüksek-gürültü timestep'leri
-                # aşırı domine etmez → blok artifact'lar azalır.
+                # Min-SNR gamma=5 loss weighting: her timestep kendi SNR'ına göre ağırlıklandırılır.
+                # Yüksek-gürültü adımlar (t→1000, düşük SNR) loss'u domine etmez → blok artifact azalır.
                 snr = compute_snr(noise_scheduler, timesteps)
-                snr_gamma = 5.0
-                snr_weights = torch.clamp(snr, max=snr_gamma) / snr  # [B]
+                snr_weights = torch.clamp(snr, max=5.0) / snr  # [B], değer aralığı (0,1]
 
-                # Masked loss: siyah vignette köşeleri loss'a katkıda bulunmasın.
-                # pixel_values [-1,1] normalize — saf siyah bölgeler ~0'a yakın.
-                pixel_sum = batch["pixel_values"].abs().sum(dim=1, keepdim=True)  # [B,1,H,W]
-                content_mask = F.interpolate(
-                    (pixel_sum > 0.05).float(), size=latents.shape[-2:], mode="nearest"
-                )  # [B,1,Lh,Lw]
-
-                per_pixel_loss = F.mse_loss(noise_pred.float(), noise.float(), reduction="none")
-                # content_mask: siyah vignette corner'larını dışarıda bırak
-                weighted = per_pixel_loss * content_mask
-                pixel_count = content_mask.sum().clamp(min=1)
-                per_sample_loss = weighted.sum(dim=[1, 2, 3]) / pixel_count * latents.numel() / bsz
+                per_sample_loss = F.mse_loss(
+                    noise_pred.float(), noise.float(), reduction="none"
+                ).mean(dim=[1, 2, 3])  # [B]
 
                 loss = (per_sample_loss * snr_weights).mean()
                 epoch_loss += loss.detach().item()
