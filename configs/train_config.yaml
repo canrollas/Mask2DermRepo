@@ -11,7 +11,7 @@ resolution: 512
 apply_lens_simulation: true
 
 # --- Training ---
-train_batch_size: 4                  # 512x512: RTX PRO 6000 ~40-50GB kullanır
+train_batch_size: 12                 # Blackwell 100GB: ~68GB kullanır, 16'ya çıkabilir
 gradient_accumulation_steps: 8       # effective batch: 8 x 8 = 64
 num_train_epochs: 150
 mixed_precision: "bf16"
@@ -43,7 +43,7 @@ tracker_project: "mask2derm"
 # --- Epoch samples ---
 num_epoch_samples: 2
 epoch_samples_steps: 15
-save_samples_every_n_epochs: 5
+save_samples_every_n_epochs: 1
 
 # --- Inference defaults ---
 validation_prompt: "dermoscopy image of a malignant skin lesion, irregular borders, clinical photography, high quality"
