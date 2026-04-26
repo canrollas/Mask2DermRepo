@@ -329,7 +329,7 @@ def main() -> None:
     # torch.compile: ilk epoch yavaş (derleme), sonraki epochlar %20-30 hızlı.
     if cfg.get("torch_compile", False):
         try:
-            controlnet = torch.compile(controlnet, mode="reduce-overhead")
+            controlnet = torch.compile(controlnet, mode="default")
             console.log("[green]torch.compile aktif (reduce-overhead)[/]")
         except Exception as e:
             console.log(f"[yellow]torch.compile başarısız: {e}[/]")
