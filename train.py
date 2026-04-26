@@ -114,12 +114,26 @@ def encode_prompts_xl(
 
 def make_add_time_ids(resolution: int, batch_size: int,
                       device: torch.device, dtype: torch.dtype) -> torch.Tensor:
-    """Build SDXL add_time_ids: [orig_h, orig_w, crop_top, crop_left, target_h, target_w]."""
+    """Build SDXL add_time_ids: [orig_h, orig_w, crop_top, crop_left, target_h, target_w].
+
+    SDXL is pretrained on 1024×1024 images. Telling it original_size=512 signals
+    a "low-quality small crop", which causes block artifacts. We report 1024×1024
+    as the original size so SDXL operates in its high-quality regime.
+    """
     ids = torch.tensor(
-        [[resolution, resolution, 0, 0, resolution, resolution]],
+        [[1024, 1024, 0, 0, resolution, resolution]],
         dtype=dtype, device=device,
     )
     return ids.repeat(batch_size, 1)
+
+
+def compute_snr(noise_scheduler, timesteps: torch.Tensor) -> torch.Tensor:
+    """Compute signal-to-noise ratio for each timestep (for min-SNR loss weighting)."""
+    alphas_cumprod = noise_scheduler.alphas_cumprod.to(timesteps.device)
+    sqrt_alphas = alphas_cumprod[timesteps] ** 0.5
+    sqrt_one_minus_alphas = (1.0 - alphas_cumprod[timesteps]) ** 0.5
+    snr = (sqrt_alphas / sqrt_one_minus_alphas) ** 2
+    return snr
 
 
 # ---------------------------------------------------------------------------
@@ -419,21 +433,41 @@ def main() -> None:
 
     if args.resume_from_checkpoint:
         ckpt_path  = Path(args.resume_from_checkpoint)
-        opt_file   = ckpt_path / "optimizer.pt"
-        sch_file   = ckpt_path / "scheduler.pt"
         state_file = ckpt_path / "training_state.json"
-        if opt_file.exists():
-            optimizer.load_state_dict(torch.load(opt_file, map_location=accelerator.device))
-            console.log(f"[green]Optimizer state restored[/]")
-        if sch_file.exists():
-            lr_scheduler.load_state_dict(torch.load(sch_file, map_location="cpu"))
-            console.log(f"[green]LR scheduler state restored[/]")
+
+        # Accelerate'in kendi load_state'i: optimizer (Adam m/v moment'leri dahil),
+        # lr_scheduler ve RNG state'lerini doğru device'a, doğru sırayla yükler.
+        # Manuel torch.load yerine bu kullanılmalı — aksi hâlde moment'ler sıfırlanır
+        # ve ilk epoch/larda loss spike + kalite düşüşü yaşanır.
+        accel_state_dir = ckpt_path / "accelerate_state"
+        if accel_state_dir.exists():
+            accelerator.load_state(str(accel_state_dir))
+            console.log("[green]Accelerate state (optimizer + scheduler + RNG) restored[/]")
+        else:
+            # Eski format checkpoint'lerle geriye dönük uyumluluk
+            opt_file = ckpt_path / "optimizer.pt"
+            sch_file = ckpt_path / "scheduler.pt"
+            if opt_file.exists():
+                state_dict = torch.load(opt_file, map_location="cpu")
+                # Tüm tensor'ları doğru device'a taşı
+                for state in state_dict["state"].values():
+                    for k, v in state.items():
+                        if isinstance(v, torch.Tensor):
+                            state[k] = v.to(accelerator.device)
+                optimizer.load_state_dict(state_dict)
+                console.log("[yellow]Optimizer loaded from legacy format (moment device taşındı)[/]")
+            if sch_file.exists():
+                lr_scheduler.load_state_dict(torch.load(sch_file, map_location="cpu"))
+                console.log("[yellow]LR scheduler loaded from legacy format[/]")
+
         if state_file.exists():
             state       = json.loads(state_file.read_text())
-            start_epoch = state["epoch"] + 1
+            start_epoch = state["epoch"] + 1   # 0-indexed; sonraki loop iterasyonu
             global_step = state["global_step"]
             best_loss   = state["best_loss"]
-            console.log(f"[green]Resuming from epoch {start_epoch + 1}[/]")
+            # start_epoch+1: bir sonraki ekranda görünecek "Epoch X" değeri
+            console.log(f"[green]Son tamamlanan: Epoch {state['epoch'] + 1} | "
+                        f"Devam: Epoch {start_epoch + 1} | Step {global_step}[/]")
 
     import time
 
@@ -496,7 +530,26 @@ def main() -> None:
                     added_cond_kwargs=added_cond_kwargs,
                 ).sample
 
-                loss = F.mse_loss(noise_pred.float(), noise.float(), reduction="mean")
+                # Min-SNR gamma loss weighting (gamma=5): yüksek-gürültü timestep'leri
+                # aşırı domine etmez → blok artifact'lar azalır.
+                snr = compute_snr(noise_scheduler, timesteps)
+                snr_gamma = 5.0
+                snr_weights = torch.clamp(snr, max=snr_gamma) / snr  # [B]
+
+                # Masked loss: siyah vignette köşeleri loss'a katkıda bulunmasın.
+                # pixel_values [-1,1] normalize — saf siyah bölgeler ~0'a yakın.
+                pixel_sum = batch["pixel_values"].abs().sum(dim=1, keepdim=True)  # [B,1,H,W]
+                content_mask = F.interpolate(
+                    (pixel_sum > 0.05).float(), size=latents.shape[-2:], mode="nearest"
+                )  # [B,1,Lh,Lw]
+
+                per_pixel_loss = F.mse_loss(noise_pred.float(), noise.float(), reduction="none")
+                # content_mask: siyah vignette corner'larını dışarıda bırak
+                weighted = per_pixel_loss * content_mask
+                pixel_count = content_mask.sum().clamp(min=1)
+                per_sample_loss = weighted.sum(dim=[1, 2, 3]) / pixel_count * latents.numel() / bsz
+
+                loss = (per_sample_loss * snr_weights).mean()
                 epoch_loss += loss.detach().item()
                 accelerator.backward(loss)
 
@@ -542,19 +595,35 @@ def main() -> None:
                             time.time() - epoch_start)
 
         if accelerator.is_main_process:
-            ckpt_dir  = Path(cfg.get("checkpoint_dir", cfg.output_dir))
-            save_path = ckpt_dir / f"checkpoint-epoch-{epoch:04d}"
-            accelerator.unwrap_model(controlnet).save_pretrained(str(save_path))
-            torch.save(optimizer.state_dict(), save_path / "optimizer.pt")
-            torch.save(lr_scheduler.state_dict(), save_path / "scheduler.pt")
-            (save_path / "training_state.json").write_text(
-                json.dumps({"epoch": epoch, "global_step": global_step,
-                            "best_loss": best_loss})
-            )
-            save_epoch_samples(
-                vae, text_encoder_1, text_encoder_2, tokenizer_1, tokenizer_2,
-                unet, controlnet, noise_scheduler, cfg, accelerator, val_dataset, epoch + 1,
-            )
+            ckpt_dir    = Path(cfg.get("checkpoint_dir", cfg.output_dir))
+            # 1-indexed: checkpoint-epoch-0042 = "Epoch 42" = epoch_0042.png — hepsi tutarlı
+            epoch_1idx  = epoch + 1
+            save_path   = ckpt_dir / f"checkpoint-epoch-{epoch_1idx:04d}"
+            save_path.mkdir(parents=True, exist_ok=True)
+
+            try:
+                # ControlNet weights — inference için HF formatında
+                accelerator.unwrap_model(controlnet).save_pretrained(str(save_path))
+                # Optimizer + scheduler + RNG state (Adam moment'leri dahil)
+                accelerator.save_state(str(save_path / "accelerate_state"))
+                # epoch burada 0-indexed kaydediliyor; resume: start_epoch = epoch + 1
+                (save_path / "training_state.json").write_text(
+                    json.dumps({"epoch": epoch, "global_step": global_step,
+                                "best_loss": best_loss})
+                )
+                console.log(f"[green]Checkpoint kaydedildi →[/] checkpoint-epoch-{epoch_1idx:04d}")
+            except Exception as e:
+                # Drive mount kopması veya disk hatası training'i öldürmesin
+                console.log(f"[red]UYARI: Checkpoint kaydedilemedi (epoch {epoch_1idx}): {e}[/]")
+                console.log("[yellow]Training devam ediyor — bir sonraki epoch'ta tekrar denenecek.[/]")
+
+            try:
+                save_epoch_samples(
+                    vae, text_encoder_1, text_encoder_2, tokenizer_1, tokenizer_2,
+                    unet, controlnet, noise_scheduler, cfg, accelerator, val_dataset, epoch_1idx,
+                )
+            except Exception as e:
+                console.log(f"[red]UYARI: Epoch sample üretilemedi (epoch {epoch_1idx}): {e}[/]")
 
     if accelerator.is_main_process:
         final_path = Path(cfg.get("checkpoint_dir", cfg.output_dir)) / "controlnet-final"
