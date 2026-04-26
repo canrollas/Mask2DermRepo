@@ -34,7 +34,7 @@ checkpoint_dir: "/content/drive/MyDrive/Mask2DermRepo/outputs/checkpoints"
 samples_dir: "/content/drive/MyDrive/Mask2DermRepo/outputs/samples"
 
 # --- Checkpointing & Logging ---
-logging_steps: 50
+logging_steps: 10
 validation_steps: 500
 num_validation_images: 4
 tracker: "wandb"

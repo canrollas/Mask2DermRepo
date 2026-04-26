@@ -479,13 +479,20 @@ def main() -> None:
                         f"Devam: Epoch {start_epoch + 1} | Step {global_step}[/]")
 
     import time
+    from tqdm.auto import tqdm
 
     for epoch in range(start_epoch, cfg.num_train_epochs):
         controlnet.train()
         epoch_loss = 0.0
         step_count = 0
         epoch_start = time.time()
-        print(f"\n--- Epoch {epoch + 1}/{cfg.num_train_epochs} ---", flush=True)
+
+        progress_bar = tqdm(
+            total=num_update_steps_per_epoch,
+            desc=f"Epoch {epoch + 1}/{cfg.num_train_epochs}",
+            dynamic_ncols=True,
+            leave=True,
+        )
 
         for batch in train_loader:
             with accelerator.accumulate(controlnet):
@@ -567,10 +574,8 @@ def main() -> None:
 
                 accelerator.log({"loss": avg_loss, "lr": current_lr}, step=global_step)
 
-                if step_count % log_every == 0 or step_count == num_update_steps_per_epoch:
-                    print_step(epoch + 1, cfg.num_train_epochs,
-                               step_count, num_update_steps_per_epoch,
-                               avg_loss, current_lr)
+                progress_bar.update(1)
+                progress_bar.set_postfix(loss=f"{avg_loss:.4f}", lr=f"{current_lr:.2e}")
 
                 if (cfg.validation_steps and global_step % cfg.validation_steps == 0
                         and accelerator.is_main_process):
@@ -585,6 +590,7 @@ def main() -> None:
                 return
 
         # ----- End of epoch -----
+        progress_bar.close()
         avg_epoch_loss = epoch_loss / max(step_count, 1)
         if avg_epoch_loss < best_loss:
             best_loss = avg_epoch_loss
