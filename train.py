@@ -229,7 +229,7 @@ def save_epoch_samples(
     prompt = "dermoscopy image of a malignant skin lesion, irregular borders, clinical photography, high quality"
     negative_prompt = (
         "blurry, low quality, cartoon, painting, sketch, unrealistic, artifacts, noise, deformed, "
-        "pink, magenta, purple tint, color cast, oversaturated, neon colors, artificial colors"
+        "oversaturated, neon colors, artificial colors, pale, washed out, white background"
     )
     images = pipeline(
         prompt=[prompt] * len(masks_pil),
