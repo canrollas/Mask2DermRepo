@@ -160,7 +160,10 @@ def download_ham10000(out_dir: Path = RAW_DIR / "ham10000") -> None:
 # ---------------------------------------------------------------------------
 
 def _resize_and_save(src: Path, dst: Path, size: int, is_mask: bool = False) -> None:
-    from data.preprocessing import standardize_pil
+    try:
+        from data.preprocessing import standardize_pil
+    except ModuleNotFoundError:
+        from preprocessing import standardize_pil
     img = Image.open(src)
     if is_mask:
         img = img.convert("L")
