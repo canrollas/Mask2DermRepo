@@ -614,35 +614,35 @@ def main() -> None:
         # ----- End of epoch -----
         progress_bar.close()
         avg_epoch_loss = epoch_loss / max(step_count, 1)
-        if avg_epoch_loss < best_loss:
+        epoch_1idx     = epoch + 1
+        improved       = avg_epoch_loss < best_loss
+        if improved:
             best_loss = avg_epoch_loss
 
-        print_epoch_summary(epoch + 1, cfg.num_train_epochs,
+        print_epoch_summary(epoch_1idx, cfg.num_train_epochs,
                             avg_epoch_loss, best_loss,
                             time.time() - epoch_start)
 
         if accelerator.is_main_process:
-            ckpt_dir    = Path(cfg.get("checkpoint_dir", cfg.output_dir))
-            # 1-indexed: checkpoint-epoch-0042 = "Epoch 42" = epoch_0042.png — hepsi tutarlı
-            epoch_1idx  = epoch + 1
-            save_path   = ckpt_dir / f"checkpoint-epoch-{epoch_1idx:04d}"
-            save_path.mkdir(parents=True, exist_ok=True)
+            ckpt_dir  = Path(cfg.get("checkpoint_dir", cfg.output_dir))
+            best_path = ckpt_dir / "checkpoint-best"
 
-            try:
-                # ControlNet weights — inference için HF formatında
-                accelerator.unwrap_model(controlnet).save_pretrained(str(save_path))
-                # Optimizer + scheduler + RNG state (Adam moment'leri dahil)
-                accelerator.save_state(str(save_path / "accelerate_state"))
-                # epoch burada 0-indexed kaydediliyor; resume: start_epoch = epoch + 1
-                (save_path / "training_state.json").write_text(
-                    json.dumps({"epoch": epoch, "global_step": global_step,
-                                "best_loss": best_loss})
-                )
-                console.log(f"[green]Checkpoint kaydedildi →[/] checkpoint-epoch-{epoch_1idx:04d}")
-            except Exception as e:
-                # Drive mount kopması veya disk hatası training'i öldürmesin
-                console.log(f"[red]UYARI: Checkpoint kaydedilemedi (epoch {epoch_1idx}): {e}[/]")
-                console.log("[yellow]Training devam ediyor — bir sonraki epoch'ta tekrar denenecek.[/]")
+            if improved:
+                best_path.mkdir(parents=True, exist_ok=True)
+                try:
+                    accelerator.unwrap_model(controlnet).save_pretrained(str(best_path))
+                    accelerator.save_state(str(best_path / "accelerate_state"))
+                    (best_path / "training_state.json").write_text(
+                        json.dumps({"epoch": epoch, "global_step": global_step,
+                                    "best_loss": best_loss})
+                    )
+                    console.log(f"[green]Best checkpoint kaydedildi →[/] checkpoint-best "
+                                f"[dim](epoch {epoch_1idx}, loss={best_loss:.5f})[/dim]")
+                except Exception as e:
+                    console.log(f"[red]UYARI: Checkpoint kaydedilemedi (epoch {epoch_1idx}): {e}[/]")
+                    console.log("[yellow]Training devam ediyor — bir sonraki epoch'ta tekrar denenecek.[/]")
+            else:
+                console.log(f"[dim]Checkpoint atlandı (loss={avg_epoch_loss:.5f} ≥ best={best_loss:.5f})[/dim]")
 
             sample_every = cfg.get("save_samples_every_n_epochs", 5)
             if epoch_1idx % sample_every == 0:
