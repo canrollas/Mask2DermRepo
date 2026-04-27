@@ -326,6 +326,12 @@ def main() -> None:
     text_encoder_2.requires_grad_(False)
     controlnet.train()
 
+    # gradient_checkpointing: aktivasyonları saklamak yerine backward'da yeniden hesapla.
+    # ~%30 hız kaybı karşılığında ControlNet aktivasyon belleği ~%60 azalır.
+    if cfg.get("gradient_checkpointing", False):
+        controlnet.enable_gradient_checkpointing()
+        console.log("[green]Gradient checkpointing aktif (bellek ↓, hız ↓~30%)[/]")
+
     # torch.compile: ilk epoch yavaş (derleme), sonraki epochlar %20-30 hızlı.
     if cfg.get("torch_compile", False):
         try:
@@ -346,13 +352,35 @@ def main() -> None:
     # ------------------------------------------------------------------
     # Optimizer
     # ------------------------------------------------------------------
-    optimizer = torch.optim.AdamW(
-        controlnet.parameters(),
-        lr=cfg.learning_rate,
-        betas=(cfg.adam_beta1, cfg.adam_beta2),
-        weight_decay=cfg.adam_weight_decay,
-        eps=cfg.adam_epsilon,
-    )
+    if cfg.get("use_8bit_adam", False):
+        try:
+            import bitsandbytes as bnb
+            optimizer = bnb.optim.AdamW8bit(
+                controlnet.parameters(),
+                lr=cfg.learning_rate,
+                betas=(cfg.adam_beta1, cfg.adam_beta2),
+                weight_decay=cfg.adam_weight_decay,
+                eps=cfg.adam_epsilon,
+            )
+            console.log("[green]8-bit AdamW aktif (optimizer state ~750 MB)[/]")
+        except ImportError:
+            console.log("[yellow]bitsandbytes bulunamadı, standart AdamW kullanılıyor. "
+                        "pip install bitsandbytes ile kurabilirsiniz.[/]")
+            optimizer = torch.optim.AdamW(
+                controlnet.parameters(),
+                lr=cfg.learning_rate,
+                betas=(cfg.adam_beta1, cfg.adam_beta2),
+                weight_decay=cfg.adam_weight_decay,
+                eps=cfg.adam_epsilon,
+            )
+    else:
+        optimizer = torch.optim.AdamW(
+            controlnet.parameters(),
+            lr=cfg.learning_rate,
+            betas=(cfg.adam_beta1, cfg.adam_beta2),
+            weight_decay=cfg.adam_weight_decay,
+            eps=cfg.adam_epsilon,
+        )
 
     # ------------------------------------------------------------------
     # Dataset & DataLoader

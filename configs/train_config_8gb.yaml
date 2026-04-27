@@ -1,0 +1,61 @@
+# Mask2Derm — 8 GB VRAM (RTX 3060/4060/3070 vb.) için optimize config
+# Temel strateji:
+#   1. resolution=256 → latent 32×32, aktivasyon belleği 4× azalır
+#   2. batch_size=1, grad_accum=64 → effective batch 64 (aynı)
+#   3. gradient_checkpointing → aktivasyonları yeniden hesapla, ~30% hız kaybı
+#   4. use_8bit_adam → optimizer state 3 GB → ~750 MB
+#   5. torch_compile=false → derleme sırasında bellek spike'ı engeller
+
+# --- Model ---
+base_model: "SG161222/RealVisXL_V4.0"
+controlnet_model: "from_unet"
+
+# --- Data ---
+data_dir: "data/processed"
+resolution: 256
+apply_lens_simulation: false
+
+# --- Training ---
+train_batch_size: 1
+gradient_accumulation_steps: 64        # effective batch: 1 x 64 = 64
+num_train_epochs: 150
+mixed_precision: "fp16"                 # 8 GB kartlar fp16 üzerinde daha verimli
+dataloader_num_workers: 2              # VRAM değil RAM/CPU için, 2 yeterli
+torch_compile: false
+
+# --- Memory tricks ---
+gradient_checkpointing: true           # ControlNet aktivasyonlarını yeniden hesapla
+use_8bit_adam: true                    # bitsandbytes AdamW8bit (pip install bitsandbytes)
+
+# --- Optimizer (AdamW) ---
+learning_rate: 1.0e-5
+lr_scheduler: "cosine"
+lr_warmup_steps: 1000
+adam_beta1: 0.9
+adam_beta2: 0.999
+adam_weight_decay: 0.01
+adam_epsilon: 1.0e-8
+max_grad_norm: 1.0
+
+# --- Output paths ---
+output_dir: "outputs/mask2derm"
+checkpoint_dir: "outputs/checkpoints"
+samples_dir: "outputs/samples"
+
+# --- Checkpointing & Logging ---
+logging_steps: 10
+validation_steps: 500
+num_validation_images: 2              # validation sırasında da VRAM tasarrufu
+tracker: "wandb"
+tracker_project: "mask2derm"
+
+# --- Epoch samples ---
+num_epoch_samples: 2
+epoch_samples_steps: 20
+save_samples_every_n_epochs: 5        # daha az sık sample → validation VRAM spike azaltır
+
+# --- Inference defaults ---
+validation_prompt: "dermoscopy image of a malignant skin lesion, irregular borders, clinical photography, high quality"
+num_inference_steps: 20               # validation'da 30 yerine 20 adım
+guidance_scale: 9.0
+controlnet_conditioning_scale: 0.8

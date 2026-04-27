@@ -222,10 +222,4 @@ If you use Mask2Derm in your research, please cite:
 }
 ```
 
----
-
-## License
-
-This project is licensed under the MIT License — see [LICENSE](LICENSE) for details.
-
-The base model weights (Realistic Vision V5.1) are subject to their own license.
+ 
