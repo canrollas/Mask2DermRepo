@@ -1,17 +1,20 @@
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-
-
-<p align="center" style="background-color: #0f1117; padding: 16px; margin: 0;">
+<p align="center" style="background-color: #0f1117; padding: 20px; margin: 0;">
   <img src="assets/mask2derm_logo.svg" alt="Mask2Derm" width="5000"/>
 </p>
 
-<br/>
+<p align="center">
+  <em>Photorealistic dermoscopic image synthesis from binary lesion masks via ControlNet + SDXL</em>
+</p>
 
-> Can Rollas, Mehmet Kemal Güllü, İbrahim Onur Alıcı
-> Amatis IT R&D — IZTECH, İzmir Bakırçay University
+<p align="center">
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python 3.10+"/></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"/></a>
+</p>
 
-
+<p align="center">
+  Can Rollas · Mehmet Kemal Güllü · İbrahim Onur Alıcı<br/>
+  <sub>Amatis IT R&D — IZTECH · İzmir Bakırçay University</sub>
+</p>
 
 ---
 
