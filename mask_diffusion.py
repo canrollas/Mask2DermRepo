@@ -252,34 +252,10 @@ class GaussianDiffusion:
         sm = self.sqrt_one_minus[t_cpu].to(x0.device)[:, None, None, None]
         return sa * x0 + sm * noise, noise
 
-    @staticmethod
-    def _sobel(x: torch.Tensor) -> torch.Tensor:
-        kx = torch.tensor([[-1,0,1],[-2,0,2],[-1,0,1]],
-                          dtype=x.dtype, device=x.device).view(1,1,3,3)
-        ky = torch.tensor([[-1,-2,-1],[0,0,0],[1,2,1]],
-                          dtype=x.dtype, device=x.device).view(1,1,3,3)
-        return (F.conv2d(x, kx, padding=1)**2 + F.conv2d(x, ky, padding=1)**2).sqrt()
-
     def loss(self, model: nn.Module, x0: torch.Tensor) -> torch.Tensor:
-        t          = torch.randint(0, self.T, (x0.shape[0],), device=x0.device)
-        xt, noise  = self.q_sample(x0, t)
-        noise_pred = model(xt, t.float())
-
-        mse = F.mse_loss(noise_pred, noise)
-
-        # x0 tahmini: xt'den noise'u çıkar
-        t_cpu = t.cpu()
-        sa    = self.sqrt_acp[t_cpu].to(x0.device)[:, None, None, None]
-        sm    = self.sqrt_one_minus[t_cpu].to(x0.device)[:, None, None, None]
-        x0_pred = ((xt - sm * noise_pred) / sa.clamp(min=1e-8)).clamp(-1, 1)
-
-        # Kenar loss: tahmin edilen maskenin kenarları gerçekle eşleşsin
-        edge_loss = F.l1_loss(self._sobel(x0_pred), self._sobel(x0))
-
-        # Boyut loss: ortalama beyaz alan oranı eşleşsin
-        size_loss = F.mse_loss(x0_pred.mean(dim=[2, 3]), x0.mean(dim=[2, 3]))
-
-        return mse + 0.1 * edge_loss + 0.05 * size_loss
+        t  = torch.randint(0, self.T, (x0.shape[0],), device=x0.device)
+        xt, noise = self.q_sample(x0, t)
+        return F.mse_loss(model(xt, t.float()), noise)
 
     @torch.no_grad()
     def ddim_sample(self, model: nn.Module, n: int, size: int,
