@@ -1,5 +1,5 @@
 <p align="center" style="background-color: #0f1117; padding: 16px; margin: 0;">
-  <img src="assets/mask2derm_logo.svg" alt="Mask2Derm" width="500"/>
+  <img src="assets/mask2derm_logo.svg" alt="Mask2Derm" width="5000"/>
 </p>
 
 

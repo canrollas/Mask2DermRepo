@@ -33,6 +33,10 @@ torch-fidelity>=0.3.0
 # --- Visualization & logging ---
 matplotlib>=3.7.0
 wandb>=0.16.0
+rich>=13.0.0
+
+# --- Optional: faster attention (CUDA only) ---
+# xformers>=0.0.23
 
 # --- Optional: Kaggle dataset download ---
 # kaggle>=1.6.0

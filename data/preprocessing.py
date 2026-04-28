@@ -8,6 +8,8 @@ Implements the physics-based simulation described in Mask2Derm §2.1:
   - Final: I'(x,y) = I(x_d, y_d) · M(d) · V(d)
 """
 
+from __future__ import annotations
+
 import argparse
 import math
 from pathlib import Path
