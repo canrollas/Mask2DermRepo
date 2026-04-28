@@ -41,10 +41,11 @@ def get_device() -> str:
 # ── dataset ───────────────────────────────────────────────────────────────────
 
 class MaskDataset(Dataset):
-    def __init__(self, mask_dir: str, size: int = 256):
-        self.paths = sorted(Path(mask_dir).glob("*.png")) + \
-                     sorted(Path(mask_dir).glob("*.jpg"))
-        assert len(self.paths), f"No masks found in {mask_dir}"
+    def __init__(self, mask_dir: str, size: int = 256, max_samples: int = 0):
+        paths = sorted(Path(mask_dir).glob("*.png")) + \
+                sorted(Path(mask_dir).glob("*.jpg"))
+        assert len(paths), f"No masks found in {mask_dir}"
+        self.paths = paths[:max_samples] if max_samples > 0 else paths
         self.size = size
 
     def __len__(self) -> int:
@@ -303,7 +304,7 @@ def train(args: argparse.Namespace) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     print(f"Device: {device}")
 
-    dataset = MaskDataset(args.mask_dir, size=args.resolution)
+    dataset = MaskDataset(args.mask_dir, size=args.resolution, max_samples=args.max_samples)
     loader  = DataLoader(dataset, batch_size=args.batch_size, shuffle=True,
                          num_workers=4, pin_memory=(device == "cuda"))
     print(f"Dataset: {len(dataset)} masks  |  batch: {args.batch_size}")
@@ -344,7 +345,8 @@ def train(args: argparse.Namespace) -> None:
         print(f"Epoch {epoch:>4}  loss={avg:.5f}  lr={scheduler.get_last_lr()[0]:.2e}")
 
         ckpt = {"epoch": epoch, "model": model.state_dict(),
-                "optimizer": optimizer.state_dict(), "best_loss": best_loss}
+                "optimizer": optimizer.state_dict(), "best_loss": best_loss,
+                "config": {"base_ch": args.base_ch, "resolution": args.resolution}}
         torch.save(ckpt, out_dir / "last.pt")
 
         if avg < best_loss:
@@ -369,10 +371,14 @@ def generate(args: argparse.Namespace) -> None:
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    raw_ckpt = torch.load(args.checkpoint, map_location=device)
-    state    = raw_ckpt["model"] if "model" in raw_ckpt else raw_ckpt
-    model    = UNet(base_ch=args.base_ch).to(device)
+    raw_ckpt   = torch.load(args.checkpoint, map_location=device)
+    state      = raw_ckpt["model"] if "model" in raw_ckpt else raw_ckpt
+    cfg        = raw_ckpt.get("config", {})
+    base_ch    = cfg.get("base_ch", args.base_ch)
+    resolution = cfg.get("resolution", args.resolution)
+    model      = UNet(base_ch=base_ch).to(device)
     model.load_state_dict(state)
+    print(f"Loaded: base_ch={base_ch}  resolution={resolution}")
     model.eval()
 
     diffusion = GaussianDiffusion(T=1000)
@@ -381,7 +387,7 @@ def generate(args: argparse.Namespace) -> None:
 
     for start in tqdm(range(0, args.n, args.gen_batch_size), desc="Generating"):
         n_batch = min(args.gen_batch_size, args.n - start)
-        raw     = diffusion.ddim_sample(model, n=n_batch, size=args.resolution,
+        raw     = diffusion.ddim_sample(model, n=n_batch, size=resolution,
                                         device=device, steps=args.steps)
         if not grid_done:
             save_image(((raw[:16] + 1) / 2).clamp(0, 1),
@@ -406,11 +412,13 @@ def main() -> None:
 
     t = sub.add_parser("train")
     t.add_argument("--mask_dir",       required=True)
-    t.add_argument("--resolution",     type=int,   default=256)
-    t.add_argument("--base_ch",        type=int,   default=64)
+    t.add_argument("--resolution",     type=int,   default=128)
+    t.add_argument("--base_ch",        type=int,   default=32)
     t.add_argument("--timesteps",      type=int,   default=1000)
-    t.add_argument("--epochs",         type=int,   default=200)
+    t.add_argument("--epochs",         type=int,   default=50)
     t.add_argument("--batch_size",     type=int,   default=16)
+    t.add_argument("--max_samples",    type=int,   default=2000,
+                   help="cap dataset size (0 = use all)")
     t.add_argument("--lr",             type=float, default=2e-4)
     t.add_argument("--dropout",        type=float, default=0.1)
     t.add_argument("--sample_every",   type=int,   default=10)
