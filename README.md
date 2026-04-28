@@ -12,6 +12,12 @@
 
 ---
 
+<p align="center">
+  <img src="assets/demo.gif" alt="Mask2Derm Demo — masks blinking to generated lesions" width="900"/>
+</p>
+
+---
+
 ## Overview
 
 Mask2Derm is a ControlNet-based latent diffusion framework that synthesizes photorealistic dermoscopic images conditioned solely on a binary lesion segmentation mask.
