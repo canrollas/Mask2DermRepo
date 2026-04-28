@@ -2,8 +2,6 @@
   <img src="assets/mask2derm_logo.svg" alt="Mask2Derm" width="5000"/>
 </p>
 
-
-
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -20,7 +18,7 @@
 
 ## Overview
 
-Mask2Derm is a ControlNet-based latent diffusion framework that synthesizes photorealistic dermoscopic images conditioned solely on a binary lesion segmentation mask.
+Mask2Derm is a ControlNet-based latent diffusion framework that synthesizes photorealistic dermoscopic images conditioned solely on a binary lesion segmentation mask. It fine-tunes a ControlNet module on top of a frozen **SDXL (RealVisXL V4.0)** backbone while keeping all other components frozen.
 
 **Key results (HAM10000):**
 | Metric | Score |
@@ -37,70 +35,53 @@ Mask2Derm is a ControlNet-based latent diffusion framework that synthesizes phot
 
 ## Architecture
 
-The pipeline has three frozen components (Realistic Vision V5.1 backbone) and one trainable module (ControlNet):
-
 ```
-Input Mask ──► ControlNet (trainable) ──► residuals ──►
-                                                         U-Net (frozen) ──► Denoised Latent ──► VAE Decoder ──► Synthetic Image
-Text Prompt ──► CLIP Encoder (frozen) ──► embeddings ──►
+Binary Mask ──► ControlNet (trainable, init from UNet) ──► residuals ──►
+                                                                          U-Net (frozen, SDXL) ──► latent ──► VAE Decoder ──► Image
+Text Prompt ──► CLIP ×2 (frozen) ──► [B, 77, 2048] + pooled [B, 1280] ──►
 ```
 
-- **VAE** compresses images to a 32×32 latent space (factor-8 downsampling).
-- **U-Net** iteratively denoises in that latent space.
-- **ControlNet** injects spatial guidance from the mask via zero-convolution residuals without disturbing the frozen priors.
+- **VAE** compresses 512×512 images to 64×64 latent space (factor-8).
+- **U-Net** iteratively denoises in latent space using dual CLIP conditioning.
+- **ControlNet** is initialized from the frozen U-Net encoder weights (no pretrained segmentation bias) and injects mask-derived spatial residuals into the U-Net decoder.
+- **Dual CLIP**: SDXL requires both text encoders — hidden states concatenated to `[B, 77, 2048]`, pooled embeds from encoder 2 only.
 
 ---
 
 ## Setup
 
 ```bash
-git clone https://github.com/your-org/mask2derm.git
-cd mask2derm
+git clone https://github.com/canrollas/Mask2DermRepo.git
+cd Mask2DermRepo
 pip install -r requirements.txt
+accelerate config  # first time only
 ```
 
-**HuggingFace access** — the base model requires accepting the license on the Hub:
-- [SG161222/Realistic_Vision_V5.1_noVAE](https://huggingface.co/SG161222/Realistic_Vision_V5.1_noVAE)
+**HuggingFace access** — accept the license on the Hub before first run:
+- [SG161222/RealVisXL_V4.0](https://huggingface.co/SG161222/RealVisXL_V4.0)
 
 ---
 
 ## Data Preparation
 
-### Option A — Download from scratch
-
 ```bash
-# ISIC 2018 Task 1 (segmentation pairs, ~2600 images)
+# ISIC 2018 Task 1 (~2600 segmentation pairs)
 python data/download.py --download-isic
 
-# HAM10000 (requires Kaggle API key at ~/.kaggle/kaggle.json)
+# HAM10000 (requires ~/.kaggle/kaggle.json)
 python data/download.py --download-ham
 
-# Merge, resize to 256×256, and write metadata.csv
-python data/download.py --prepare --size 256
+# Merge, resize to 512×512, write metadata.csv
+python data/download.py --prepare --size 512
 ```
 
-### Option B — Use preprocessed HuggingFace dataset
-
-```python
-from datasets import load_dataset
-ds = load_dataset("your-hf-org/mask2derm-dataset")
-```
-
-### Optics-Inspired Standardization
-
-Every image is passed through a physics-based simulation that models the circular field-of-view, vignetting falloff, and barrel lens distortion of a real dermatoscope:
+Every image is standardized through a physics-based optics simulation (circular FOV, vignetting, barrel distortion) to match real dermatoscope characteristics:
 
 ```python
 from data.preprocessing import standardize_pil
 from PIL import Image
 
-pil_out = standardize_pil(Image.open("input.jpg"), size=256)
-```
-
-Demo comparison (original vs. each stage):
-
-```bash
-python data/preprocessing.py --input assets/sample.jpg --output demo.png
+pil_out = standardize_pil(Image.open("input.jpg"), size=512)
 ```
 
 ---
@@ -108,27 +89,25 @@ python data/preprocessing.py --input assets/sample.jpg --output demo.png
 ## Training
 
 ```bash
-# Configure accelerate (first time only)
-accelerate config
-
-# Launch training
 accelerate launch train.py --config configs/train_config.yaml
+
+# Resume from checkpoint
+accelerate launch train.py --config configs/train_config.yaml \
+    --resume-from-checkpoint outputs/checkpoints/checkpoint-N
 ```
 
 Key hyperparameters (`configs/train_config.yaml`):
 
 | Parameter | Value |
 |---|---|
-| Base model | `SG161222/Realistic_Vision_V5.1_noVAE` |
-| ControlNet init | `lllyasviel/sd-controlnet-seg` |
-| Resolution | 256 × 256 |
-| Batch size | 16 (grad. accum. = 4) |
-| Learning rate | 1e-5 (cosine, 500 warmup) |
+| Base model | `SG161222/RealVisXL_V4.0` |
+| ControlNet init | from frozen U-Net encoder weights |
+| Resolution | 512 × 512 |
+| Effective batch size | 64 (grad. accum. = 8) |
+| Learning rate | 1e-5 (cosine, 1000 warmup steps) |
 | Optimizer | AdamW (β₁=0.9, β₂=0.999, wd=1e-2) |
-| Epochs | 100 |
-| Precision | FP32 |
-
-Checkpoints are saved every epoch under `outputs/mask2derm/`.
+| Epochs | 150 |
+| Precision | BF16 |
 
 ---
 
@@ -138,6 +117,7 @@ Checkpoints are saved every epoch under `outputs/mask2derm/`.
 # Single mask → image
 python inference.py \
     --controlnet outputs/mask2derm/controlnet-final \
+    --base_model SG161222/RealVisXL_V4.0 \
     --mask assets/sample_mask.png \
     --prompt "dermoscopy image of a benign skin lesion, clinical photography" \
     --output generated.png
@@ -152,38 +132,44 @@ python inference.py \
 
 ---
 
-## Evaluation
+## Mask Generation (optional)
 
-### Distributional metrics (FID & KID)
+To generate novel masks without real segmentation masks, a lightweight DDPM (22M param UNet) is included:
 
 ```bash
+# Train mask diffusion model
+python mask_diffusion.py train \
+    --mask_dir data/processed/masks \
+    --base_ch 48 --epochs 50 --timesteps 500
+
+# Generate new masks
+python mask_diffusion.py generate \
+    --checkpoint outputs/mask_diffusion/best.pt \
+    --n 64 --steps 200
+```
+
+---
+
+## Evaluation
+
+```bash
+# FID & KID (bias-corrected via linear extrapolation)
 python evaluate/metrics.py \
     --real_dir      data/processed/images \
     --generated_dir outputs/generated
-```
 
-FID is computed at four subset sizes and extrapolated to infinite sample size via linear regression to obtain a bias-corrected estimate.
-
-### Shape Consistency (IoU & Dice)
-
-```bash
+# Shape Consistency (IoU & Dice via DeepLabV3+)
 python evaluate/shape_consistency.py \
     --generated_dir outputs/generated \
     --mask_dir      data/processed/masks \
     --output_csv    results/shape_consistency.csv
-```
 
-### TSTR (Train-on-Synthetic, Test-on-Real)
-
-```bash
-# 1. Fine-tune DeepLabV3+ on synthetic data
+# TSTR — train on synthetic, test on real
 python evaluate/tstr.py train \
     --synthetic_images outputs/generated \
     --synthetic_masks  data/processed/masks \
-    --output_dir       outputs/tstr/checkpoints \
-    --epochs 50
+    --output_dir       outputs/tstr/checkpoints --epochs 50
 
-# 2. Compare against ImageNet baseline on real test set
 python evaluate/tstr.py eval \
     --real_images  data/processed/images \
     --real_masks   data/processed/masks \
@@ -196,12 +182,12 @@ python evaluate/tstr.py eval \
 ## Repository Structure
 
 ```
-mask2derm/
+Mask2DermRepo/
 ├── configs/
 │   └── train_config.yaml       # All training hyperparameters
 ├── data/
 │   ├── preprocessing.py        # Optics simulation (vignetting, barrel distortion)
-│   ├── dataset.py              # DermoscopyDataset (image, mask, prompt)
+│   ├── dataset.py              # DermoscopyDataset (image, mask, prompt triplets)
 │   ├── download.py             # HAM10000 + ISIC 2018 download & preparation
 │   └── prepare_hf_dataset.py   # Push to HuggingFace Hub
 ├── evaluate/
@@ -210,8 +196,10 @@ mask2derm/
 │   └── tstr.py                 # TSTR experiment
 ├── utils/
 │   └── visualization.py        # Loss curve, IoU histogram, comparison grid
-├── train.py                    # Main training script (accelerate)
-├── inference.py                # Mask → image generation
+├── train.py                    # Main training script (accelerate + SDXL)
+├── inference.py                # Mask → image generation (SDXL pipeline)
+├── mask_diffusion.py           # DDPM for novel mask generation
+├── mask_vae.py                 # Legacy VAE-based mask generator (deprecated)
 ├── requirements.txt
 └── paper/                      # LaTeX source of the accompanying paper
 ```
@@ -220,8 +208,6 @@ mask2derm/
 
 ## Citation
 
-If you use Mask2Derm in your research, please cite:
-
 ```bibtex
 @article{rollas2025mask2derm,
   title   = {Mask2Derm: Photorealistic and Controllable Skin Lesion Synthesis via Latent Diffusion},
@@ -229,5 +215,3 @@ If you use Mask2Derm in your research, please cite:
   year    = {2025},
 }
 ```
-
- 

@@ -97,6 +97,7 @@ class ResBlock(nn.Module):
     def forward(self, x: torch.Tensor, t_emb: torch.Tensor) -> torch.Tensor:
         h = self.conv1(F.silu(self.norm1(x)))
         scale, shift = self.time_proj(F.silu(t_emb)).chunk(2, dim=-1)
+        scale = scale.clamp(-3, 3)  # prevent FiLM explosion → NaN
         h = self.norm2(h) * (1 + scale[..., None, None]) + shift[..., None, None]
         return self.conv2(self.drop(F.silu(h))) + self.skip(x)
 
@@ -117,7 +118,9 @@ class Attention(nn.Module):
         def sh(t):
             return t.reshape(B, self.heads, self.head_dim, H * W).permute(0, 1, 3, 2)
         q, k, v = sh(q), sh(k), sh(v)
-        attn = torch.softmax(q @ k.transpose(-2, -1) * self.head_dim ** -0.5, dim=-1)
+        logits = q @ k.transpose(-2, -1) * self.head_dim ** -0.5
+        logits = logits - logits.amax(dim=-1, keepdim=True).detach()  # stable softmax
+        attn = torch.softmax(logits, dim=-1)
         out  = (attn @ v).permute(0, 1, 3, 2).reshape(B, C, H, W)
         return x + self.proj(out)
 
@@ -334,6 +337,9 @@ def train(args: argparse.Namespace) -> None:
         for x in tqdm(loader, desc=f"Epoch {epoch}/{args.epochs}", leave=False):
             x    = x.to(device)
             loss = diffusion.loss(model, x)
+            if not torch.isfinite(loss):
+                optimizer.zero_grad()
+                continue
             optimizer.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
