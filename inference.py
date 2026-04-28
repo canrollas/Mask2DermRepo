@@ -152,14 +152,11 @@ def parse_args() -> argparse.Namespace:
                         help="Directory of mask images for batch generation")
 
     # Prompt
-    parser.add_argument("--prompt",
-                        default="dermoscopy image of a skin lesion, clinical photography, "
-                                "high quality, realistic",
-                        help="Generation prompt")
+    parser.add_argument("--prompt", type=str, default=None,
+                        help="Generation prompt (default: random from built-in list)")
     parser.add_argument("--negative_prompt",
                         default="blurry, low quality, cartoon, painting, sketch, "
-                                "unrealistic, artifacts, pink, magenta, purple tint, "
-                                "color cast, oversaturated, neon colors, artificial colors, "
+                                "unrealistic, artifacts, oversaturated, neon colors, "
                                 "illustration, digital art",
                         help="Negative prompt")
 
@@ -169,7 +166,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--controlnet_scale", type=float, default=0.8,
                         help="ControlNet conditioning scale")
     parser.add_argument("--resolution", type=int, default=1024)
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--seed", type=int, default=None, help="Random seed (default: random)")
 
     # Output
     parser.add_argument("--output", type=str, default="generated.png",
@@ -199,8 +196,9 @@ def main() -> None:
     # ---- Single image mode ----
     if args.mask:
         mask = load_mask(args.mask, size=args.resolution)
-        print(f"Generating from {args.mask}…")
-        img = generate_image(pipe, mask, args.prompt, args.negative_prompt,
+        prompt = args.prompt or random.choice(_ALL_PROMPTS)
+        print(f"Generating from {args.mask}… prompt: {prompt}")
+        img = generate_image(pipe, mask, prompt, args.negative_prompt,
                              args.num_steps, args.guidance_scale,
                              args.controlnet_scale, args.seed)
         img.save(args.output)

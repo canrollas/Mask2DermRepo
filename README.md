@@ -1,6 +1,8 @@
-# Mask2Derm
+<p align="center" style="background-color: #0f1117; padding: 16px; margin: 0;">
+  <img src="assets/mask2derm_logo.svg" alt="Mask2Derm" width="500"/>
+</p>
 
-**Photorealistic and Controllable Skin Lesion Synthesis via Latent Diffusion**
+
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)

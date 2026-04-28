@@ -55,6 +55,13 @@ _BENIGN_PROMPTS = [
     "dermoscopic view of a benign lesion with regular globules, brownish coloration",
     "high resolution dermoscopy of a benign skin lesion, well-defined borders, even tone",
     "dermoscopy image of a benign melanocytic nevus, symmetric dots and globules",
+    "dermoscopy of a hairy skin lesion, terminal hair follicles, benign nevus",
+    "dermoscopic view of a benign lesion with prominent hair shafts overlying pigmented area",
+    "dermoscopy of a pink benign lesion, vascular structures, telangiectasia",
+    "dermoscopic image of a light pink dermal nevus, soft rose coloration",
+    "dermoscopy of a blue-gray benign nevus, homogeneous blue pigmentation",
+    "dermoscopic view of a tan seborrheic keratosis, milia-like cysts, comedo-like openings",
+    "clinical dermoscopy of a hairy scalp nevus, hair follicle openings, brown pigment",
 ]
 
 _MALIGNANT_PROMPTS = [
@@ -62,12 +69,18 @@ _MALIGNANT_PROMPTS = [
     "dermoscopic view of melanoma with asymmetric pigmentation, clinical setting",
     "high quality dermoscopy of a malignant skin lesion with variegated color",
     "dermoscopy of melanoma with blue-white veil, irregular pigmentation, dark brown",
-    "clinical dermoscopy of basal cell carcinoma, arborizing vessels, translucent",
+    "clinical dermoscopy of basal cell carcinoma, arborizing vessels, translucent pink",
     "dermoscopic image of melanoma, atypical network, regression structures",
     "dermoscopy of a malignant lesion with multiple colors, brown black and gray tones",
     "high quality dermoscopy of melanoma with radial streaks and irregular border",
     "dermoscopic view of malignant melanoma, shiny white structures, red milky areas",
-    "dermoscopy of actinic keratosis, strawberry pattern, erythematous background",
+    "dermoscopy of actinic keratosis, strawberry pattern, erythematous red background",
+    "dermoscopy of amelanotic melanoma, pinkish-red coloration, dotted vessels",
+    "dermoscopic image of vascular malignant lesion, red and purple hues, irregular vessels",
+    "dermoscopy of melanoma with purple and black pigmentation, regression white areas",
+    "clinical dermoscopy of squamous cell carcinoma, reddish scaly surface, hemorrhagic crust",
+    "dermoscopic view of nodular melanoma, blue-black color, shiny surface",
+    "dermoscopy of a reddish malignant lesion, polymorphous vessels, ulceration",
 ]
 
 _GENERIC_PROMPTS = [
@@ -76,6 +89,11 @@ _GENERIC_PROMPTS = [
     "clinical dermoscopy photograph of a skin lesion, realistic texture",
     "dermoscopy image of a pigmented skin lesion, natural skin tones",
     "high quality dermoscopic image, realistic dermoscopy photography",
+    "dermoscopy of a skin lesion with hair, follicular openings visible",
+    "dermoscopic image showing reddish vascular skin lesion, clinical photography",
+    "dermoscopy of a multicolored skin lesion, brown pink and gray tones",
+    "clinical dermoscopy of a purple-brown pigmented lesion, high resolution",
+    "dermoscopic view of a skin lesion on hairy skin, hair shafts visible",
 ]
 
 
