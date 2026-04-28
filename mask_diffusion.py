@@ -246,8 +246,9 @@ class GaussianDiffusion:
 
     def q_sample(self, x0: torch.Tensor, t: torch.Tensor):
         noise = torch.randn_like(x0)
-        sa = self.sqrt_acp[t].to(x0.device)[:, None, None, None]
-        sm = self.sqrt_one_minus[t].to(x0.device)[:, None, None, None]
+        t_cpu = t.cpu()
+        sa = self.sqrt_acp[t_cpu].to(x0.device)[:, None, None, None]
+        sm = self.sqrt_one_minus[t_cpu].to(x0.device)[:, None, None, None]
         return sa * x0 + sm * noise, noise
 
     def loss(self, model: nn.Module, x0: torch.Tensor) -> torch.Tensor:
