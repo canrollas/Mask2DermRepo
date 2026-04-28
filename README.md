@@ -1,12 +1,17 @@
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+
 <p align="center" style="background-color: #0f1117; padding: 16px; margin: 0;">
   <img src="assets/mask2derm_logo.svg" alt="Mask2Derm" width="5000"/>
 </p>
 
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+<br/>
 
 > Can Rollas, Mehmet Kemal Güllü, İbrahim Onur Alıcı
 > Amatis IT R&D — IZTECH, İzmir Bakırçay University
+
+
 
 ---
 
