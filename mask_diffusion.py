@@ -313,6 +313,31 @@ def clean_mask(mask: np.ndarray) -> np.ndarray:
     return (result.astype(np.uint8) * 255)
 
 
+def is_valid_mask(mask: np.ndarray,
+                  min_area: float = 0.02,
+                  max_area: float = 0.80,
+                  edge_margin: int = 4) -> bool:
+    """
+    min_area / max_area: lesion alanının toplam piksel sayısına oranı.
+    edge_margin: kenara bu kadar piksel yakın olan maskeler reddedilir.
+    """
+    h, w   = mask.shape
+    binary = mask > 127
+    area   = binary.sum() / (h * w)
+
+    if area < min_area or area > max_area:
+        return False
+
+    # Kenar dokunma kontrolü
+    if (binary[:edge_margin, :].any() or
+        binary[-edge_margin:, :].any() or
+        binary[:, :edge_margin].any() or
+        binary[:, -edge_margin:].any()):
+        return False
+
+    return True
+
+
 # ── train ─────────────────────────────────────────────────────────────────────
 
 def train(args: argparse.Namespace) -> None:
@@ -366,7 +391,8 @@ def train(args: argparse.Namespace) -> None:
 
         ckpt = {"epoch": epoch, "model": model.state_dict(),
                 "optimizer": optimizer.state_dict(), "best_loss": best_loss,
-                "config": {"base_ch": args.base_ch, "resolution": args.resolution}}
+                "config": {"base_ch": args.base_ch, "resolution": args.resolution,
+                           "timesteps": args.timesteps}}
         torch.save(ckpt, out_dir / "last.pt")
 
         if avg < best_loss:
@@ -387,7 +413,7 @@ def train(args: argparse.Namespace) -> None:
 # ── generate ──────────────────────────────────────────────────────────────────
 
 def generate(args: argparse.Namespace) -> None:
-    device  = get_device()
+    device  = args.device if args.device else get_device()
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -396,12 +422,13 @@ def generate(args: argparse.Namespace) -> None:
     cfg        = raw_ckpt.get("config", {})
     base_ch    = cfg.get("base_ch", args.base_ch)
     resolution = cfg.get("resolution", args.resolution)
+    timesteps  = args.timesteps or cfg.get("timesteps", 1000)
     model      = UNet(base_ch=base_ch).to(device)
     model.load_state_dict(state)
-    print(f"Loaded: base_ch={base_ch}  resolution={resolution}")
+    print(f"Loaded: base_ch={base_ch}  resolution={resolution}  timesteps={timesteps}")
     model.eval()
 
-    diffusion = GaussianDiffusion(T=1000)
+    diffusion = GaussianDiffusion(T=timesteps)
     saved     = 0
     grid_done = False
 
@@ -416,7 +443,7 @@ def generate(args: argparse.Namespace) -> None:
 
         for m in to_binary(raw):
             clean = clean_mask(m)
-            if clean.sum() == 0:
+            if not is_valid_mask(clean):
                 continue
             Image.fromarray(clean).save(out_dir / f"mask_{saved:05d}.png")
             saved += 1
@@ -450,10 +477,13 @@ def main() -> None:
     g.add_argument("--n",              type=int,   default=64)
     g.add_argument("--resolution",     type=int,   default=256)
     g.add_argument("--base_ch",        type=int,   default=64)
-    g.add_argument("--steps",          type=int,   default=50,
-                   help="DDIM denoising steps (50 = fast & high quality)")
+    g.add_argument("--steps",          type=int,   default=50)
+    g.add_argument("--timesteps",      type=int,   default=None,
+                   help="Override T from checkpoint (use if checkpoint predates config saving)")
     g.add_argument("--gen_batch_size", type=int,   default=16)
     g.add_argument("--out_dir",        default="outputs/masks_diffusion")
+    g.add_argument("--device",         default=None,
+                   help="Force device: cpu, cuda, mps (default: auto-detect)")
 
     args = p.parse_args()
     (train if args.cmd == "train" else generate)(args)
