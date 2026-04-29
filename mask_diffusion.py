@@ -289,14 +289,28 @@ def clean_mask(mask: np.ndarray) -> np.ndarray:
     labeled, n = ndimage.label(binary)
     if n == 0:
         return mask
+
+    # 1. En büyük parçayı al
     sizes   = ndimage.sum(binary, labeled, range(1, n + 1))
     largest = labeled == (int(np.argmax(sizes)) + 1)
-    largest = ndimage.binary_fill_holes(largest)
-    r = 4;  y, xg = np.ogrid[-r:r+1, -r:r+1]
-    disk    = (xg**2 + y**2 <= r**2).astype(np.uint8)
+
+    # 2. Küçük gürültüyü temizle (opening), henüz delik doldurmadan önce
+    r = 3
+    y, xg = np.ogrid[-r:r+1, -r:r+1]
+    disk   = (xg**2 + y**2 <= r**2).astype(np.uint8)
     largest = ndimage.binary_opening(largest, structure=disk)
-    smoothed = ndimage.gaussian_filter(largest.astype(np.float32), sigma=3)
-    return ((smoothed >= 0.4).astype(np.uint8) * 255)
+
+    # 3. Tüm delikleri doldur — koşulsuz
+    largest = ndimage.binary_fill_holes(largest)
+
+    # 4. Smooth edge + threshold
+    smoothed = ndimage.gaussian_filter(largest.astype(np.float32), sigma=2)
+    result   = smoothed >= 0.4
+
+    # 5. Smooth sonrası oluşabilecek delikleri bir kez daha doldur
+    result = ndimage.binary_fill_holes(result)
+
+    return (result.astype(np.uint8) * 255)
 
 
 # ── train ─────────────────────────────────────────────────────────────────────
