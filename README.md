@@ -9,6 +9,7 @@
 <p align="center">
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python 3.10+"/></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"/></a>
+  <a href="https://www.kaggle.com/datasets/rollas/mask2derm-generated-skin-lesions"><img src="https://img.shields.io/badge/Kaggle-Generated%20Samples-20BEFF?logo=kaggle&logoColor=white" alt="Kaggle Dataset"/></a>
 </p>
 
 <p align="center">
@@ -20,6 +21,10 @@
 
 <p align="center">
   <img src="assets/demo.gif" alt="Mask2Derm Demo — masks blinking to generated lesions" width="900"/>
+</p>
+
+<p align="center">
+  <sub>600 mask–image pairs produced by Mask2Derm — <a href="https://www.kaggle.com/datasets/rollas/mask2derm-generated-skin-lesions">available on Kaggle</a></sub>
 </p>
 
 ---
