@@ -21,7 +21,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from PIL import Image
+from PIL import Image, ImageFilter
 from scipy import ndimage
 from torch.utils.data import DataLoader, Dataset
 from torchvision.utils import save_image
@@ -445,10 +445,13 @@ def generate(args: argparse.Namespace) -> None:
             clean = clean_mask(m)
             if not is_valid_mask(clean):
                 continue
-            Image.fromarray(clean).save(out_dir / f"mask_{saved:05d}.png")
+            img = Image.fromarray(clean).resize((512, 512), Image.LANCZOS)
+            img = img.filter(ImageFilter.GaussianBlur(radius=3))
+            img = img.point(lambda p: 255 if p > 127 else 0)
+            img.save(out_dir / f"{args.prefix}_{saved:05d}.png")
             saved += 1
 
-    print(f"{saved} masks saved → {out_dir}")
+    print(f"{saved} masks saved (512×512) → {out_dir}")
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
@@ -482,6 +485,8 @@ def main() -> None:
                    help="Override T from checkpoint (use if checkpoint predates config saving)")
     g.add_argument("--gen_batch_size", type=int,   default=16)
     g.add_argument("--out_dir",        default="outputs/masks_diffusion")
+    g.add_argument("--prefix",         default="mask",
+                   help="Filename prefix for generated masks (default: mask)")
     g.add_argument("--device",         default=None,
                    help="Force device: cpu, cuda, mps (default: auto-detect)")
 
