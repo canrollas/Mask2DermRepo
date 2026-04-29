@@ -29,9 +29,10 @@ adam_epsilon: 1.0e-8
 max_grad_norm: 1.0
 
 # --- Output paths ---
-output_dir: "/content/drive/MyDrive/Mask2DermRepo/outputs/mask2derm"
-checkpoint_dir: "/content/drive/MyDrive/Mask2DermRepo/outputs/checkpoints"
-samples_dir: "/content/drive/MyDrive/Mask2DermRepo/outputs/samples"
+# Colab: set to /content/drive/MyDrive/Mask2DermRepo/outputs/...
+output_dir: "outputs/mask2derm"
+checkpoint_dir: "outputs/checkpoints"
+samples_dir: "outputs/samples"
 
 # --- Checkpointing & Logging ---
 logging_steps: 10

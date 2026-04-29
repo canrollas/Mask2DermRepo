@@ -192,7 +192,8 @@ python evaluate/tstr.py eval \
 ```
 Mask2DermRepo/
 ├── configs/
-│   └── train_config.yaml       # All training hyperparameters
+│   ├── train_config.yaml       # Default training hyperparameters (A100 / Colab)
+│   └── train_config_8gb.yaml   # Low-VRAM config (8 GB GPUs, fp16 + grad checkpointing)
 ├── data/
 │   ├── preprocessing.py        # Optics simulation (vignetting, barrel distortion)
 │   ├── dataset.py              # DermoscopyDataset (image, mask, prompt triplets)
@@ -202,14 +203,18 @@ Mask2DermRepo/
 │   ├── metrics.py              # FID extrapolation, KID
 │   ├── shape_consistency.py    # IoU / Dice via DeepLabV3+
 │   └── tstr.py                 # TSTR experiment
+├── scripts/
+│   └── make_gif.py             # Generate demo GIF (mask grid ↔ lesion grid)
 ├── utils/
 │   └── visualization.py        # Loss curve, IoU histogram, comparison grid
+├── notebooks/
+│   └── Mask2DermRepo.ipynb     # Colab training notebook
+├── assets/                     # Logo, demo GIF
+├── paper/                      # LaTeX source of the accompanying paper
 ├── train.py                    # Main training script (accelerate + SDXL)
 ├── inference.py                # Mask → image generation (SDXL pipeline)
 ├── mask_diffusion.py           # DDPM for novel mask generation
-├── mask_vae.py                 # Legacy VAE-based mask generator (deprecated)
-├── requirements.txt
-└── paper/                      # LaTeX source of the accompanying paper
+└── requirements.txt
 ```
 
 ---

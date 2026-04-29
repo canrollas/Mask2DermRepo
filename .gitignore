@@ -12,6 +12,9 @@ data/processed/
 # Model outputs & checkpoints
 outputs/
 
+# Drive download folders
+drive-download-*/
+
 # WandB logs
 wandb/
 
