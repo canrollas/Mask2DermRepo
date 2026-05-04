@@ -1,0 +1,99 @@
+\section{Methodology}\label{sec:method}
+
+In this section, we present the proposed pipeline for photorealistic and controllable skin lesion synthesis. The overall workflow, illustrated in Figure~\ref{fig:pipeline}, follows a sequential generation process: (1) specification of the lesion geometry via a binary segmentation mask, (2) optional physics-based optical standardization of training images, (3) conditioning of the latent diffusion model through ControlNet, and (4) classifier-free guidance at inference to balance mask adherence and image diversity.
+
+\begin{figure}[H]
+    \centering
+    \resizebox{\linewidth}{!}{\input{pipeline_diagram.tex}}
+    \caption{Overview of the Mask2Derm pipeline: proceeding from mask generation to ControlNet conditioning and final lesion synthesis.}
+    \label{fig:pipeline}
+\end{figure}
+
+% ------------------------------------------------------------------
+\subsection{Dataset \& Preprocessing}
+
+\paragraph{Dataset.}
+We consolidate two public dermoscopy benchmarks: ISIC-2018 Task~1~\cite{Codella2019ISIC2018} and HAM10000~\cite{Tschandl2018HAM10000}. After deduplication and resolution normalization to $512\times512$ pixels, the combined corpus contains approximately 11\,000 image–mask pairs. Lesion labels are unified into a binary benign/malignant taxonomy; HAM10000 diagnoses \texttt{\{mel, bcc, scc, akiec\}} are marked malignant and the remainder benign. The dataset is split 80/10/10 for training, validation, and held-out testing.
+
+\paragraph{Optics-inspired standardization.}
+Raw images sourced from heterogeneous devices differ in field-of-view shape, brightness roll-off, and lens geometry. To harmonize these differences, we implement a physics-based simulation of dermoscope optics consisting of three stages applied in sequence.
+
+First, we define the radial distance $d(x, y) = \sqrt{(x - c_x)^2 + (y - c_y)^2}$ from the image centre $(c_x, c_y)$. This distance map drives both the circular aperture mask $M(d)$ and the vignetting falloff $V(d)$:
+\begin{equation}
+    M(d) = \begin{cases}
+    1, & d \leq R \\
+    \text{smooth feather}, & R < d \leq R + \delta \\
+    0, & d > R + \delta
+    \end{cases}
+    \quad \text{and} \quad
+    V(d) = (1 - \alpha) + \alpha \left( 1 - (d/R)^2 \right)^\gamma
+\end{equation}
+where $R$ is the aperture radius, $\delta$ is the feathering margin, $\alpha$ controls vignetting strength, and $\gamma$ governs the falloff rate.
+
+Second, we simulate barrel distortion by remapping pixel coordinates via a radial displacement model:
+\begin{align}
+    X &= \frac{x - c_x}{f_x}, \quad Y = \frac{y - c_y}{f_y}, \quad r^2 = X^2 + Y^2 \nonumber \\
+    x_d &= f_x X(1 + k_1 r^2) + c_x, \quad y_d = f_y Y(1 + k_1 r^2) + c_y
+\end{align}
+where $k_1 < 0$ induces the barrel effect. The final standardized image combines all three components: $I'(x, y) = I(x_d, y_d) \cdot M(d) \cdot V(d)$.
+
+\begin{figure}[H]
+    \centering
+    \safeimg[width=0.6\linewidth]{figures/lens_simulation_comparison.png}
+    \caption{Visual comparison before (left) and after (right) applying physics-based circular lens simulation.}
+    \label{fig:lens_sim}
+\end{figure}
+
+Each processed image–mask pair is then used as a training sample, ensuring the model learns to generate synthetic images with consistent optical characteristics.
+
+% ------------------------------------------------------------------
+\subsection{Mask Generation Pipeline}
+
+When real segmentation masks are not available, novel binary lesion masks can be generated via a dedicated Denoising Diffusion Probabilistic Model (DDPM) trained on the binary mask collection. This lightweight UNet (22M parameters) is trained solely on binary masks and generates realistic lesion shapes from Gaussian noise using a standard forward/reverse diffusion process with $T=500$ timesteps.
+
+At inference, the mask generator produces $N$ novel binary masks of resolution $512\times512$. These synthetic masks are then passed directly to the ControlNet synthesis pipeline (Section~\ref{sec:controlnet}), enabling a fully annotation-free generation workflow. The mask generator and the image synthesis model are decoupled: one can use real masks, synthetically generated masks, or hand-drawn masks interchangeably as conditions for image generation.
+
+% ------------------------------------------------------------------
+\subsection{ControlNet-based Diffusion Model}\label{sec:controlnet}
+
+Our image synthesis pipeline is built upon the latent diffusion model (LDM) framework~\cite{Rombach2022LDM}, utilizing the pre-trained Realistic Vision V5.1 as its frozen backbone. As illustrated in Figure~\ref{fig:architecture}, the foundational model consists of three core frozen components: (i) a Variational Autoencoder (VAE) that encodes images into a lower-dimensional latent space, (ii) a U-Net based denoiser operating in this latent space, and (iii) a CLIP text encoder providing textual conditioning.
+
+\begin{figure}[H]
+    \centering
+    \resizebox{\linewidth}{!}{%
+        \sffamily
+        \input{architecture.tex}%
+    }
+    \caption{General architecture of the proposed Mask-Conditioned ControlNet pipeline.}
+    \label{fig:architecture}
+\end{figure}
+
+The VAE architecture, depicted in Figure~\ref{fig:vae}, compresses high-resolution images into a compact latent space, allowing the diffusion process to operate on significantly smaller tensors without losing semantic detail.
+
+\begin{figure}[H]
+    \centering
+    \resizebox{\linewidth}{!}{\input{vae_diagram.tex}}
+    \caption{VAE Architecture: the input image is encoded into a latent distribution $z$; the diffusion process operates within this compressed space.}
+    \label{fig:vae}
+\end{figure}
+
+To enable precise geometric control from binary masks, we integrate a ControlNet module. ControlNet creates a trainable copy of the U-Net encoder blocks and middle block. It employs \emph{zero convolution} layers—$1\times1$ convolutions initialized with both weights and biases at zero—to prevent disruption of the pre-trained prior at the start of training. Let $\mathcal{F}(x; \Theta)$ represent a U-Net block with frozen parameters $\Theta$ and $\Theta_c$ its trainable copy. The conditioning output is:
+\begin{equation}
+    y_c = \mathcal{F}(x; \Theta) + \mathcal{Z}\!\left(\mathcal{F}(x + \mathcal{Z}(c; \Theta_{z1}); \Theta_c); \Theta_{z2}\right)
+\end{equation}
+where $c$ is the binary segmentation mask condition and $\mathcal{Z}(\cdot;\Theta_{z_i})$ denotes the zero convolution layers. At initialization, $y_c = \mathcal{F}(x;\Theta)$, so the model starts from the original backbone behaviour and learns conditioning progressively.
+
+The training objective minimizes the mean squared error between the noise predicted by the model and the actual noise added to the latent:
+\begin{equation}
+\mathcal{L} = \mathbb{E}_{\mathbf{x}_0, \boldsymbol{\epsilon} \sim \mathcal{N}(0, \mathbf{I}), t, c_t, c_s} \left[ \left\| \boldsymbol{\epsilon} - \boldsymbol{\epsilon}_\theta(\mathbf{z}_t, t, c_t, c_s) \right\|^2_2 \right]
+\end{equation}
+where $\mathbf{x}_0$ is the ground truth image, $\mathbf{z}_t$ is the noisy latent at timestep $t$, $\boldsymbol{\epsilon}$ is the ground truth noise, $c_t$ is the text prompt, and $c_s$ is the mask condition. Only ControlNet parameters are updated; all backbone weights remain frozen throughout training.
+
+% ------------------------------------------------------------------
+\subsection{Classifier-Free Guidance}
+
+At inference, we employ Classifier-Free Guidance (CFG)~\cite{ho2022classifierfree} to control the adherence of the generated image to both the text prompt and the mask condition. CFG jointly trains the model with and without conditioning signals by randomly dropping them during training with a fixed probability $p_\text{drop}$. At inference, the noise estimate is extrapolated away from the unconditional prediction:
+\begin{equation}
+    \tilde{\boldsymbol{\epsilon}}_\theta = \boldsymbol{\epsilon}_\theta(\mathbf{z}_t, \varnothing, \varnothing) + w \cdot \left( \boldsymbol{\epsilon}_\theta(\mathbf{z}_t, c_t, c_s) - \boldsymbol{\epsilon}_\theta(\mathbf{z}_t, \varnothing, \varnothing) \right)
+\end{equation}
+where $w \geq 1$ is the guidance scale and $\varnothing$ denotes the null conditioning. A higher $w$ increases fidelity to the mask and prompt at the cost of sample diversity. In our experiments we use $w = 7.5$ as the default, which provides a good balance between lesion shape adherence and texture variety. The guidance scale can be adjusted at inference time without retraining, enabling users to trade diversity for control depending on the downstream application.

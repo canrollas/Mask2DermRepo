@@ -1,0 +1,52 @@
+\section{Introduction}
+
+\paragraph{Problem definition:}
+Skin cancer is one of the most prevalent malignancies worldwide, with incidence 
+and mortality rates rising steadily over recent decades~\cite{Wang_M}. Early and 
+accurate diagnosis via dermoscopy is critical, yet the performance of data-driven 
+diagnostic models is fundamentally bounded by \textbf{\emph{data scarcity in segmentation}} and \textbf{\emph{the high 
+cost of pixel-level annotation}}. Public dermoscopy collections such as HAM10000~\cite{Tschandl2018HAM10000}, 
+while providing a valuable starting point, offer limited pixel-level segmentation 
+annotations and insufficient morphological diversity to train robust segmentation 
+models. Rather than treating such collections as the final training source, 
+we use them as a foundation to learn the visual statistics of dermoscopic 
+images from which we can generate a far larger and more diverse annotated corpus. 
+
+The problem defines data scarcity in dermoscopic segmentation as a bottleneck for developing accurate and generalizable models. The high cost of pixel-level annotation, which requires expert dermatologists, further exacerbates this issue. 
+
+\paragraph{Motivation:}
+Synthetic data generation offers a principled path around the scarcity of annotated 
+dermoscopic images: labeled samples can be produced at scale without patient privacy
+concerns or the bottleneck of clinical annotation labour~\cite{du2023boostingdermatoscopiclesionsegmentation}. This motivation 
+is grounded in our own experience when developing a dermoscopic lesion segmentation 
+model, we found that existing public datasets provided insufficient annotated samples 
+to improve generalization, while recruiting trained dermatologists for pixel-level 
+mask annotation is rarely feasible at scale.
+
+This observation led us to reframe the problem: rather than acquiring more labeled 
+images, we ask whether a generative model can produce realistic dermoscopic images 
+that \emph{conform to a given segmentation mask}. Such a model would invert the 
+traditional annotation pipeline instead of experts labeling images, the model 
+produces images already aligned to their masks yielding an effectively unlimited 
+supply of paired training data.
+
+However, generating \emph{clinically plausible} dermoscopy images is non-trivial. 
+Synthesized images must (i) respect precise lesion geometry shape, borders, and 
+asymmetry that encodes diagnostic features; (ii) reproduce realistic dermoscopic 
+textures such as pigment networks, streaks, and regression structures; and (iii) 
+conform to the optical characteristics of real dermoscopes~\cite{Tschandl2018HAM10000}. Earlier
+GAN-based approaches struggle with geometric controllability and mode
+collapse~\cite{qasim2021redganattackingclassimbalance}, while recent diffusion models offer superior sample diversity
+but typically lack fine-grained spatial control~\cite{SheJun_DiDGen_MICCAI2025,xu2025skindualgenpromptdrivendiffusionsimultaneous}. Combining latent 
+diffusion with ControlNet~\cite{zhang2023adding} provides a promising bridge: 
+mask-level spatial conditioning guides lesion geometry while the pre-trained 
+backbone supplies rich texture priors.
+\paragraph{Contributions.}
+This paper presents \textit{Mask2Derm}, a mask-conditioned latent diffusion framework for photorealistic and controllable dermoscopic image synthesis. Our main contributions are:
+
+\begin{itemize}[leftmargin=1.5em]
+    \item \textbf{Harmonized multi-source corpus.} We unify ISIC-2018 and HAM10000 into a standardized 11k-image collection with consistent resolution, label taxonomy, and binary segmentation masks.
+    \item \textbf{Physics-based optics simulation.} We design and apply a circular aperture, vignetting, and barrel-distortion pipeline that aligns heterogeneous source images to a canonical dermoscope appearance, reducing domain shift at no annotation cost.
+    \item \textbf{Mask-conditioned ControlNet pipeline.} We fine-tune a ControlNet module on top of a frozen Stable Diffusion backbone, enabling precise geometry control from binary segmentation masks while preserving the generative diversity of the pre-trained prior.
+    \item \textbf{Clinical utility validation.} We demonstrate through a rigorous TSTR protocol that a segmentation model trained \emph{only} on synthetic data surpasses an ImageNet baseline by $+13.4\%$ IoU on real patient images, confirming the translational value of the generated data.
+\end{itemize}

@@ -1,0 +1,143 @@
+\section{Experiments}
+
+Our experimental design is structured to assess three critical dimensions of synthetic medical data: (1)~\textbf{Perceptual Realism}, evaluating visual indistinguishability from real dermoscopy; (2)~\textbf{Distributional Fidelity}, quantifying statistical alignment between synthetic and real distributions; and (3)~\textbf{Clinical Utility}, measuring the practical value of synthetic data for training downstream segmentation models.
+
+% ------------------------------------------------------------------
+\subsection{Implementation Details}
+
+Training was conducted on a single NVIDIA A100 GPU. The full hyperparameter configuration is as follows:
+
+\begin{itemize}
+    \item \textbf{Base Model:} Realistic Vision V5.1 (\texttt{SG161222/Realistic\_Vision\_V5.1\_noVAE})
+    \item \textbf{ControlNet Initialization:} \texttt{lllyasviel/sd-controlnet-seg}
+    \item \textbf{Resolution:} $256 \times 256$ pixels
+    \item \textbf{Batch Size:} 16 (gradient accumulation steps = 4; effective batch = 64)
+    \item \textbf{Learning Rate:} $1\times10^{-5}$ (cosine schedule, 500 warmup steps)
+    \item \textbf{Optimizer:} AdamW ($\beta_1=0.9$, $\beta_2=0.999$, weight decay $=10^{-2}$)
+    \item \textbf{Epochs:} 100
+    \item \textbf{Mixed Precision:} FP32
+    \item \textbf{Guidance Scale ($w$):} 7.5
+    \item \textbf{Inference Scheduler:} DDPM, 200 denoising steps
+\end{itemize}
+
+\begin{table}[htbp]
+    \centering
+    \caption{Detailed Parameter Configuration}
+    \label{tab:parameter_config}
+    \resizebox{\linewidth}{!}{%
+    \begin{tabular}{l l c l}
+        \toprule
+        \textbf{Component} & \textbf{Architecture} & \textbf{Parameters} & \textbf{Source Verification} \\
+        \midrule
+        Base Generative Model & Stable Diffusion v1.5 (U-Net + Text Enc.) & $\sim$983 M & Matches official v1.5 release stats \\
+        \quad --- U-Net Backbone & Standard U-Net & ($\sim$860 M) & Frozen \\
+        \quad --- Text Encoder & CLIP ViT-L/14 & ($\sim$123 M) & Frozen \\
+        Spatial Condition & ControlNet (Encoder Copy) & $\sim$361 M & Derived from SD Encoder architecture \\
+        \midrule
+        \textbf{Total Parameter Count} & \textbf{Mask2Derm Pipeline} & \textbf{$\sim$1.34 B} & Base (983M) + ControlNet (361M) \\
+        \bottomrule
+    \end{tabular}
+    }
+\end{table}
+
+All checkpoints were saved every epoch to monitor convergence. Figure~\ref{fig:loss_curve} shows training loss over 100 epochs.
+
+\begin{figure}[H]
+    \centering
+    \safeimg[width=0.8\linewidth]{figures/loss_curve.png}
+    \caption{Training loss curve of the Mask-Conditioned ControlNet over 100 epochs.}
+    \label{fig:loss_curve}
+\end{figure}
+
+% ------------------------------------------------------------------
+\subsection{Evaluation Metrics}
+
+\subsubsection{Shape Consistency}
+To quantify how faithfully generated lesions adhere to the input mask, we pass each synthetic image through a pre-trained DeepLabV3+ segmentation network and compare the predicted mask against the input ground truth mask using:
+
+\begin{itemize}
+    \item \textbf{Intersection over Union (IoU) / Jaccard Index~\cite{jaccard1901etude}:}
+    \begin{equation}
+        \mathrm{IoU}(A, B) = \frac{|A \cap B|}{|A \cup B|} = \frac{TP}{TP + FP + FN}
+    \end{equation}
+
+    \item \textbf{Dice Similarity Coefficient~\cite{dice1945measures,sorensen1948method}:}
+    \begin{equation}
+        \mathrm{DSC}(A, B) = \frac{2 |A \cap B|}{|A| + |B|}
+    \end{equation}
+\end{itemize}
+
+\subsubsection{Distributional Fidelity}
+
+\begin{itemize}
+    \item \textbf{Fréchet Inception Distance (FID)~\cite{heusel2017gans}:} Measures the Wasserstein-2 distance between real and synthetic feature distributions extracted from InceptionV3:
+    \begin{equation}
+        \mathrm{FID}(r, g) = \|\mu_r - \mu_g\|_2^2 + \mathrm{Tr}\!\left(\Sigma_r + \Sigma_g - 2(\Sigma_r \Sigma_g)^{1/2}\right)
+    \end{equation}
+    We compute bias-corrected FID via linear extrapolation over subset fractions \{0.25, 0.50, 0.75, 1.0\} to obtain a finite-sample-corrected estimate.
+
+    \item \textbf{Kernel Inception Distance (KID)~\cite{binkowski2018demystifying}:} An unbiased estimator based on Maximum Mean Discrepancy with a polynomial kernel, more reliable for small medical datasets.
+\end{itemize}
+
+\subsubsection{Clinical Utility (TSTR)}
+Following Esteban et al.~\cite{esteban2017real}, we adopt the Train-on-Synthetic, Test-on-Real (TSTR) protocol: a segmentation model is trained solely on synthetic data and evaluated on a held-out real test set. A positive performance delta over an ImageNet-only baseline confirms that the synthetic data captures domain-specific features.
+
+% ------------------------------------------------------------------
+\subsection{Baseline Comparisons}
+
+Table~\ref{tab:benchmark} places our FID results in the context of the broader literature. Direct numerical comparisons must be interpreted cautiously due to differences in dataset scale and conditioning modalities.
+
+\begin{table}[htbp]
+    \centering
+    \caption{Comparison of FID scores across model architectures and datasets. Lower FID indicates better distributional alignment.}
+    \label{tab:benchmark}
+    \resizebox{\linewidth}{!}{%
+    \begin{tabular}{l l l c c}
+        \toprule
+        \textbf{Model Architecture} & \textbf{Dataset} & \textbf{Conditioning} & \textbf{FID Score} & \textbf{Ref.} \\
+        \midrule
+        Class-N-Diff (Setting 3) & ISIC 2018 & Classifier Induced & 2.42 & \cite{ClassNDiff2025} \\
+        DiT (Attributes + LLaVA) & ISIC & 5 Attributes & 5.75 & \cite{DermDiT2025} \\
+        Class-N-Diff (Setting 2) & ISIC 2018 & Class Label & 15.94 & \cite{ClassNDiff2025} \\
+        DermDiff & Fitzpatrick & Text (Skin Tone) & 20.34 & \cite{DermDiff2025} \\
+        DiT (Unconditional) & ISIC & None & 24.36 & \cite{DermDiT2025} \\
+        StyleGAN3-R & ISIC 2018 & Unconditional & 26.5 & \cite{TexasGAN2023} \\
+        StyleGAN2 & ISIC 2018 & Unconditional & 27.4 & \cite{TexasGAN2023} \\
+        Class Conditional DiT & ISIC 2018 & Class Label & 45.77 & \cite{ClassNDiff2025} \\
+        \textbf{Mask2Derm (Ours)} & \textbf{HAM10000} & \textbf{Mask + Text} & \textbf{62.33} & -- \\
+        StyleGAN2-ADA & HAM10000/MILK & Unconditional & $\sim$65.5 & \cite{SkinGenBench2025} \\
+        DCGAN & ISIC 2018 & Unconditional & 66.5 & \cite{TexasGAN2023} \\
+        DermDiff (Mixed) & ISIC + Fitzpatrick & Text & 86.53 & \cite{DermDiff2025} \\
+        MedFusion & HAM10000 & Latent & 99.2 & [12] \\
+        Stable Diffusion (Base) & HAM10000 & Text & 145.26 & \cite{StableDiffusion15} \\
+        \bottomrule
+    \end{tabular}
+    }
+    \par\vspace{1mm}\footnotesize{Direct numerical comparison should be interpreted cautiously due to dataset scale and conditioning differences.}
+\end{table}
+
+% ------------------------------------------------------------------
+\subsection{Ablation Study}
+
+To isolate the contribution of each design choice, we conduct a controlled ablation by removing or replacing individual components and measuring the resulting FID, shape IoU, and TSTR performance. Table~\ref{tab:ablation} summarizes the results.
+
+\begin{table}[htbp]
+    \centering
+    \caption{Ablation study: contribution of individual components.}
+    \label{tab:ablation}
+    \resizebox{0.85\linewidth}{!}{%
+    \begin{tabular}{l c c c}
+        \toprule
+        \textbf{Configuration} & \textbf{FID $\downarrow$} & \textbf{Shape IoU $\uparrow$} & \textbf{TSTR IoU $\uparrow$} \\
+        \midrule
+        Full model (Mask2Derm) & \textbf{62.33} & \textbf{0.8658} & \textbf{0.9254} \\
+        \quad w/o optics simulation & 71.4 & 0.8601 & 0.8940 \\
+        \quad w/o ControlNet (text-only SD) & 145.26 & 0.3120 & 0.8120 \\
+        \quad CFG scale $w=1.0$ (no guidance) & 88.7 & 0.7810 & 0.8630 \\
+        \quad CFG scale $w=15.0$ (over-guided) & 74.1 & 0.8520 & 0.9010 \\
+        \bottomrule
+    \end{tabular}
+    }
+\end{table}
+
+\textbf{Optics simulation} contributes a consistent improvement across all metrics: removing it increases FID by $\sim$9 points and reduces TSTR IoU by 3.1\%, confirming that optical domain alignment is a meaningful source of gain rather than a cosmetic post-process. \textbf{ControlNet conditioning} is the most critical component: replacing it with unconditional text-only Stable Diffusion collapses shape IoU to 0.31, demonstrating that the text prompt alone is insufficient for precise geometric control. \textbf{Guidance scale} shows a non-monotonic effect: too low ($w=1.0$) undermines adherence to both the mask and prompt, while too high ($w=15.0$) reduces diversity and slightly degrades FID without meaningfully improving shape consistency beyond the default $w=7.5$.
