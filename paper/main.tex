@@ -116,7 +116,7 @@
   \IfFileExists{#2}%
     {\includegraphics[#1]{#2}}%
     {\fbox{\begin{minipage}{0.8\linewidth}\centering\vspace{1cm}%
-      \textit{[Figure: \texttt{#2}]}\vspace{1cm}\end{minipage}}}%
+      \textit{[Figure: \texttt{\detokenize{#2}}]}\vspace{1cm}\end{minipage}}}%
 }
 
 % Optional: line numbers for review

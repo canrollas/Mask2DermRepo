@@ -15,19 +15,25 @@ images from which we can generate a far larger and more diverse annotated corpus
 The problem defines data scarcity in dermoscopic segmentation as a bottleneck for developing accurate and generalizable models. The high cost of pixel-level annotation, which requires expert dermatologists, further exacerbates this issue. 
 
 \paragraph{Motivation:}
-Synthetic data generation offers a principled path around the scarcity of annotated 
+Synthetic data generation offers a principled path around the scarcity of annotated
 dermoscopic images: labeled samples can be produced at scale without patient privacy
-concerns or the bottleneck of clinical annotation labour~\cite{du2023boostingdermatoscopiclesionsegmentation}. This motivation 
-is grounded in our own experience when developing a dermoscopic lesion segmentation 
-model, we found that existing public datasets provided insufficient annotated samples 
-to improve generalization, while recruiting trained dermatologists for pixel-level 
-mask annotation is rarely feasible at scale.
+concerns or the bottleneck of clinical annotation labour~\cite{du2024boosting}. This motivation
+is grounded directly in our own research experience. While developing an in-house
+dermoscopic lesion segmentation model based on a lightweight U-Net architecture,
+we repeatedly encountered a hard ceiling: regardless of the architectural
+modifications we applied, model performance stagnated due to the limited number
+of available annotated samples. Recruiting expert dermatologists for additional
+pixel-level mask annotation was not a feasible option at our scale.
+Faced with this bottleneck, we concluded that the most practical path to breaking
+through the segmentation performance barrier was not to redesign the model, but to
+expand the training data itself — specifically by generating new paired image--mask
+samples synthetically.
 
-This observation led us to reframe the problem: rather than acquiring more labeled 
-images, we ask whether a generative model can produce realistic dermoscopic images 
-that \emph{conform to a given segmentation mask}. Such a model would invert the 
-traditional annotation pipeline instead of experts labeling images, the model 
-produces images already aligned to their masks yielding an effectively unlimited 
+This observation led us to reframe the problem: rather than acquiring more labeled
+images, we ask whether a generative model can produce realistic dermoscopic images
+that \emph{conform to a given segmentation mask}. Such a model would invert the
+traditional annotation pipeline — instead of experts labeling images, the model
+produces images already aligned to their masks — yielding an effectively unlimited
 supply of paired training data.
 
 However, generating \emph{clinically plausible} dermoscopy images is non-trivial. 
@@ -37,7 +43,7 @@ textures such as pigment networks, streaks, and regression structures; and (iii)
 conform to the optical characteristics of real dermoscopes~\cite{Tschandl2018HAM10000}. Earlier
 GAN-based approaches struggle with geometric controllability and mode
 collapse~\cite{qasim2021redganattackingclassimbalance}, while recent diffusion models offer superior sample diversity
-but typically lack fine-grained spatial control~\cite{SheJun_DiDGen_MICCAI2025,xu2025skindualgenpromptdrivendiffusionsimultaneous}. Combining latent 
+but typically lack fine-grained spatial control~\cite{SheJun_DiDGen_MICCAI2025,xu2025skindualgen}. Combining latent 
 diffusion with ControlNet~\cite{zhang2023adding} provides a promising bridge: 
 mask-level spatial conditioning guides lesion geometry while the pre-trained 
 backbone supplies rich texture priors.
@@ -45,8 +51,7 @@ backbone supplies rich texture priors.
 This paper presents \textit{Mask2Derm}, a mask-conditioned latent diffusion framework for photorealistic and controllable dermoscopic image synthesis. Our main contributions are:
 
 \begin{itemize}[leftmargin=1.5em]
-    \item \textbf{Harmonized multi-source corpus.} We unify ISIC-2018 and HAM10000 into a standardized 11k-image collection with consistent resolution, label taxonomy, and binary segmentation masks.
-    \item \textbf{Physics-based optics simulation.} We design and apply a circular aperture, vignetting, and barrel-distortion pipeline that aligns heterogeneous source images to a canonical dermoscope appearance, reducing domain shift at no annotation cost.
+    \item \textbf{Public minimal synthetic dataset.} We release a publicly available collection of synthetically generated dermoscopic images paired with binary segmentation masks, intended as a minimal ready-to-use resource for training and benchmarking segmentation models. The dataset is accessible at \href{https://www.kaggle.com/datasets/rollas/mask2derm-generated-skin-lesions}{Kaggle: Mask2Derm Generated Skin Lesions}.
     \item \textbf{Mask-conditioned ControlNet pipeline.} We fine-tune a ControlNet module on top of a frozen Stable Diffusion backbone, enabling precise geometry control from binary segmentation masks while preserving the generative diversity of the pre-trained prior.
-    \item \textbf{Clinical utility validation.} We demonstrate through a rigorous TSTR protocol that a segmentation model trained \emph{only} on synthetic data surpasses an ImageNet baseline by $+13.4\%$ IoU on real patient images, confirming the translational value of the generated data.
+    \item \textbf{Clinical utility validation.} [Will be added soon]
 \end{itemize}

@@ -1,10 +1,125 @@
-\section{Related Work}
+\section{Literature Review}
 
-\subsection{Skin Lesion Synthesis}
-Generative models have been applied to dermoscopy synthesis since the advent of Generative Adversarial Networks (GANs). Early works used DCGAN and ProGAN architectures to oversample minority classes in ISIC datasets, demonstrating modest improvements in classifier accuracy~\cite{TexasGAN2023}. StyleGAN2 and its adaptive discriminator augmentation variant (StyleGAN2-ADA) achieved more stable training on small medical datasets, producing high-resolution lesion images with realistic textures~\cite{SkinGenBench2025}. Conditional extensions, such as class-conditional GANs and RedGAN~\cite{qasim2021redganclassimbalance}, targeted class imbalance directly by conditioning generation on lesion type labels. More recently, diffusion models have replaced GANs as the dominant paradigm. DermDiff~\cite{DermDiff2025} adapted Stable Diffusion with text conditioning on skin tone and lesion type, while DiT-based approaches~\cite{DermDiT2025} demonstrated low FID scores on curated ISIC subsets. Concurrent work by She et al.~\cite{SheJun_DiDGen_MICCAI2025} and Xu et al.~\cite{xu2025skindualgenpromptdrivendiffusionsimultaneous} explored simultaneous image-mask generation to bypass the need for pre-existing segmentation annotations. Mask2Derm differs from these works by conditioning generation on explicit binary masks and targeting a harmonized multi-source corpus rather than a single curated dataset.
+Skin lesion segmentation is a fundamental preprocessing step in
+computer-aided diagnosis (CAD) systems for dermatological conditions.
+Clinically, dermatologists rely on the ABCDE criteria (asymmetry,
+border irregularity, color variation, diameter, and evolution) to
+assess malignancy risk~\cite{Nachbar1994ABCD} (Figure~\ref{fig:abcde}).
+Each of these criteria is inherently spatial: asymmetry requires
+comparing lesion halves, border irregularity depends on precise
+boundary delineation, and color variation analysis is meaningful
+only within a correctly isolated lesion region.
+Consequently, the accuracy of the segmentation mask directly
+conditions the reliability of downstream diagnostic features.
+This tight coupling between \emph{segmentation quality and
+diagnostic outcome} has driven sustained effort toward building
+more accurate and robust lesion segmentation models, with deep
+learning architectures at the center of this progress.
 
-\subsection{Conditional Image Generation}
-Conditioning generative models on spatial signals has a rich history. Pix2pix~\cite{isola2017image} established paired image-to-image translation via conditional GANs, while SPADE~\cite{park2019semantic} introduced spatially-adaptive normalization for semantic layout synthesis. ControlNet~\cite{zhang2023adding} extended this idea to large-scale diffusion models by injecting spatial conditioning through locked-copy encoder blocks and zero-initialized convolutions, preserving the pre-trained backbone's generative capacity while learning new conditioning pathways. InstructPix2Pix~\cite{brooks2023instructpix2pix} and IP-Adapter demonstrated that additional modalities can be integrated into diffusion models without catastrophic forgetting. We adopt ControlNet as our conditioning mechanism because it offers a favorable trade-off between geometric control fidelity and training stability on domain-shifted medical data.
 
-\subsection{Data Augmentation for Medical Imaging}
-Synthetic data augmentation has shown consistent benefits across medical imaging modalities. In radiology, GAN-generated chest X-rays and CT slices have been used to augment small annotated sets for pneumonia and lung nodule detection~\cite{TODO}. In pathology, whole-slide image synthesis has improved rare-subtype classification. For dermoscopy specifically, Du et al.~\cite{du2023boostingdermatoscopiclesionsegmentation} demonstrated that diffusion-generated images can boost lesion segmentation performance when mixed with real data. The TSTR protocol, formalized by Esteban et al.~\cite{esteban2017real}, provides a rigorous framework for evaluating whether synthetic data carries sufficient clinical signal to substitute for real annotations; we adopt this protocol as our primary utility metric.
+\begin{figure}[H]
+    \centering
+    \safeimg[width=0.85\linewidth]{figures/article_abcde_example.png}
+    \caption{The ABCDE criteria used in clinical dermoscopy evaluation: Asymmetry, Border irregularity, Color variation, Diameter, and Evolution~\cite{Nachbar1994ABCD}.}
+    \label{fig:abcde}
+\end{figure}
+
+
+Early deep learning approaches to lesion segmentation were dominated by fully convolutional encoder-decoder architectures.
+The seminal U-Net~\cite{Ronneberger2015UNet}, originally proposed for biomedical image segmentation,
+became the de facto backbone for skin lesion tasks due to its skip connections that preserve spatial detail across encoding and decoding stages.
+Building on this foundation, the ISIC challenges~\cite{Codella2017ISIC, Codella2019ISIC2018}
+provided the first large-scale benchmarks for skin lesion segmentation,
+establishing U-Net and its variants as the dominant approach and catalysing a wave of architecture-level improvements.
+
+Attention mechanisms were incorporated to allow the decoder to focus selectively on lesion boundaries rather than treating all spatial locations equally~\cite{Oktay2018AttentionUNet}.
+Dilated convolutions and atrous spatial pyramid pooling, popularised by DeepLabV3+~\cite{Chen2018DeepLab}, improved multi-scale context aggregation and were quickly adapted to dermoscopy segmentation to handle lesions that vary greatly in size and aspect ratio.
+The introduction of \emph{transformer-based architectures} marked a further shift: TransUNet~\cite{Chen2021TransUNet} combined a Vision Transformer encoder with a convolutional decoder, capturing long-range spatial dependencies that convolutions struggle to model, while Swin-UNet~\cite{Cao2021SwinUNet} demonstrated that a \emph{pure transformer hierarchy} could match or exceed CNN-based segmentation performance on medical benchmarks.
+
+Despite these architectural advances, a \emph{persistent bottleneck remains}: all of the above models are supervised and rely on pixel-level annotated masks for training.
+Data scarcity is a well-documented challenge in deep learning broadly~\cite{bansal2022systematic}, and dermoscopy is particularly affected: the limited scale of annotated datasets such as ISIC has been shown to hinder the development of highly generalisable segmentation models~\cite{cassidy2022analysis}.
+Public dermoscopy collections provide only on the order of ten thousand annotated images, and expert annotation is costly and slow to scale.
+Consequently, models trained on existing datasets frequently \emph{fail to generalise} to unseen lesion morphologies or acquisition conditions a ceiling imposed not by architecture but by data scarcity.
+This observation motivates the exploration of synthetic data generation as a complementary strategy to architectural refinement.
+
+Synthetic image generation has therefore emerged as a principled
+response to this bottleneck, offering a scalable path toward
+more generalizable segmentation models without the cost and
+delay of expert annotation.Early approaches to synthetic dermoscopy image generation relied on
+Generative Adversarial Networks (GANs)~\cite{goodfellow2014generative}.
+In the general medical imaging domain, architectures such as DCGAN and
+StyleGAN2 were applied to augment under-represented pathology classes,
+with StyleGAN2 achieving near-indistinguishable synthetic outputs on
+radiology datasets as measured by Fréchet Inception Distance
+(FID)~\cite{ktena2024generative}.
+For skin lesion data specifically, conditional GAN variants were
+adapted to address the severe class imbalance in dermoscopic
+collections, where malignant samples constitute a small minority of
+available images~\cite{cassidy2022analysis}.
+
+However, noise-based GAN architectures generate images without
+explicit spatial constraints, producing lesions whose morphological
+markers lack anatomical coherence.
+This limitation is critical for segmentation: training a segmentation
+model requires pixel-perfect ground-truth masks that are spatially
+aligned with the synthesised image.
+Bissoto~et~al.~\cite{bissoto2018skin} addressed this by adopting
+pix2pixHD~\cite{wang2018pix2pixHD}, a high-resolution
+image-to-image translation network conditioned on semantic
+segmentation masks.
+By incorporating superpixel-based instance maps alongside binary
+lesion masks, their framework produced 1024×512 synthetic dermoscopy
+images whose structural boundaries remained faithful to the input
+mask, achieving an AUC of 82.0\% on a downstream classification task.
+A subsequent critical review by the same group confirmed that
+mask-conditioned translation models such as pix2pixHD and
+Spatially Adaptive Normalisation (SPADE) consistently outperform
+noise-based generators in anatomical
+coherence~\cite{bissoto2021gan}.
+
+Despite these advances, GAN-based mask-conditioned synthesis
+suffers from training instability, mode collapse, and limited
+diversity in generated textures.
+Diffusion models have recently emerged as a more stable and
+expressive alternative: by learning to reverse a gradual noising
+process, they produce sharper and more diverse outputs than GANs
+while remaining amenable to spatial conditioning
+signals~\cite{ho2020denoising} (Figure~\ref{fig:gan_vs_diffusion}).
+This property makes them particularly suited to the two-stage
+pipeline explored in the present work, in which a diffusion model
+first synthesises a plausible lesion mask and subsequently generates
+a photorealistic dermoscopy image conditioned on that mask ---
+decoupling shape generation from texture synthesis and enabling
+fine-grained control over both.
+
+\begin{figure}[H]
+    \centering
+    \safeimg[width=0.85\linewidth]{figures/gan_vs_diffusion.png}
+    \caption{The main architecture difference of the GAN and Diffusion based generation}
+    \label{fig:gan_vs_diffusion}
+\end{figure}
+
+This stability advantage has been validated in the dermoscopy domain.
+Yang~et~al.~\cite{yang2025better} demonstrated that a DDPM augmented
+with dilated convolutions and self-attention mechanisms could reduce
+the annotated data requirement substantially: lightweight segmentation
+models trained on real and synthetic combined data matched the
+performance of models with ten times more parameters trained on real
+data alone.
+At the architecture level, SkinDualGen~\cite{xu2025skindualgen}
+extended Stable Diffusion with LoRA fine-tuning to simultaneously
+synthesise a dermoscopic image and its corresponding binary
+segmentation mask from a single text prompt, achieving a Dice score
+of 80.12 and an IoU of 66.84 on ISIC 2018 --- removing the need for
+separate mask annotation entirely.
+ControlNet-based adaptations of mask-conditioned diffusion further
+demonstrated that providing an explicit lesion boundary as a spatial
+conditioning signal enables precise control over lesion shape and
+location in the generated image~\cite{du2024boosting}.
+
+Taken together, this body of evidence positions mask-guided diffusion
+as the most promising generative strategy for dermoscopy segmentation:
+it combines the anatomical controllability of mask-conditioned GANs
+with the training stability and output diversity of diffusion models.
+The present work builds directly on this foundation.
+
