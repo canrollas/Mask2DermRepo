@@ -1,91 +1,105 @@
 \documentclass{standalone}
 \usepackage[utf8]{inputenc}
 \usepackage{tikz}
-\usetikzlibrary{shapes.geometric, arrows, positioning, fit, backgrounds, calc, matrix}
+\usetikzlibrary{shapes.geometric, arrows, positioning, fit, backgrounds, calc}
+\usepackage{amsmath, amssymb}
 \usepackage{helvet}
 \renewcommand{\familydefault}{\sfdefault}
-
-% Colors are still useful in preamble for standalone, but we'll use literal colors or re-define them if needed in main.
-% To be safe, we use standard colors in the styles below or define them in the tikzpicture scope if they are custom.
-% Defining them globally in the doc body is safest for input.
-
-\definecolor{frozen}{RGB}{200, 200, 200}
-\definecolor{trainable}{RGB}{255, 150, 100}
-\definecolor{data}{RGB}{100, 180, 255}
-\definecolor{process}{RGB}{220, 220, 250}
+\usepackage{pifont}
+\usepackage{newunicodechar}
+\newunicodechar{①}{\ding{172}}
+\newunicodechar{②}{\ding{173}}
+\newunicodechar{③}{\ding{174}}
+\newunicodechar{④}{\ding{175}}
+\newunicodechar{⑤}{\ding{176}}
+\newunicodechar{⑥}{\ding{177}}
+\newunicodechar{⑦}{\ding{178}}
+\newunicodechar{⑧}{\ding{179}}
+\newunicodechar{⑨}{\ding{180}}
+\newunicodechar{⑩}{\ding{181}}
 
 \begin{document}
-% We embed styles here so they are preserved when imported via \input into main.tex
 \begin{tikzpicture}[
-    node distance=2.5cm, 
-    auto, 
-    scale=0.85, 
-    transform shape, 
-    ampersand replacement=\&,
-    % Styles embedded for portability
-    box_frozen/.style={rectangle, rounded corners, minimum width=3cm, minimum height=1.5cm, align=center, draw=gray!80, fill=gray!10, very thick, font=\sffamily\small},
-    box_trainable/.style={rectangle, rounded corners, minimum width=3cm, minimum height=1.5cm, align=center, draw=orange!80, fill=orange!10, very thick, font=\sffamily\small},
-    box_data/.style={rectangle, rounded corners, minimum width=2.5cm, minimum height=1.5cm, align=center, draw=blue!60, fill=blue!5, thick, font=\sffamily\small},
-    process/.style={rectangle, rounded corners, minimum width=2.5cm, minimum height=1cm, align=center, draw=blue!50, fill=blue!5, dashed, font=\sffamily\footnotesize},
-    line/.style={draw, -latex', thick},
-    dashedline/.style={draw, -latex', dashed, thick, blue}
+    scale=0.80, transform shape,
+    frozen/.style={rectangle, rounded corners=4pt, minimum width=2.9cm, minimum height=1.0cm,
+                   align=center, draw=gray!70, fill=gray!12, very thick, font=\sffamily\small},
+    trainable/.style={rectangle, rounded corners=4pt, minimum width=2.9cm, minimum height=1.0cm,
+                      align=center, draw=orange!80, fill=orange!12, very thick, font=\sffamily\small},
+    data/.style={rectangle, rounded corners=4pt, minimum width=2.0cm, minimum height=0.85cm,
+                 align=center, draw=blue!60, fill=blue!6, thick, font=\sffamily\small},
+    lossbox/.style={rectangle, rounded corners=4pt, minimum width=3.2cm, minimum height=1.0cm,
+                    align=center, draw=red!60, fill=red!6, thick, font=\sffamily\small},
+    arr/.style={thick, ->, >=stealth, line width=1.0pt},
+    darr/.style={thick, ->, >=stealth, dashed, line width=1.0pt}
 ]
 
-    % --- LAYER 1: DATA INPUTS (Left Side) ---
-    \node [box_data] (img) {\textbf{Input Image}\\\scriptsize Dermoscopy (256x256)};
-    \node [box_data, below=2.5cm of img] (mask) {\textbf{Lesion Mask}\\\scriptsize Binary Segmentation};
-    \node [box_data, above=1.5cm of img] (prompt) {\textbf{Text Prompt}\\\scriptsize "benign/malignant..."};
+%% ── Row 1 (y=0): Image path ─────────────────────────────────────────────
+\node[data]    (img)   at (0.0,  0)   {\textbf{①}\\Input Image};
+\node[frozen]  (vae)   at (3.3,  0)   {\textbf{②} VAE Encoder\\\tiny frozen};
+\node[data]    (z0)    at (6.2,  0)   {$\mathbf{z}_0$};
+\node[frozen]  (sched) at (9.0,  0)   {\textbf{③} Noise Scheduler\\\tiny DDPM, add $\boldsymbol{\epsilon}$ at $t$};
+\node[data]    (zt)    at (12.1, 0)   {$\mathbf{z}_t$};
 
-    % --- LAYER 2: ENCODERS (Column 2) ---
-    \node [box_frozen, right=2cm of img] (vae) {\textbf{VAE Encoder}\\\scriptsize Frozen};
-    \node [box_trainable, right=2cm of mask] (controlnet) {\textbf{ControlNet}\\\scriptsize Trainable Copy\\(Zero Convs)};
-    \node [box_frozen, right=2cm of prompt] (clip) {\textbf{CLIP Text Encoder}\\\scriptsize Frozen};
+%% ── Row 2 (y=-2.7): Text path ───────────────────────────────────────────
+\node[data]   (prom)  at (0.0, -2.7)  {\textbf{④}\\Text Prompt};
+\node[frozen] (clip1) at (3.3, -2.1)  {\textbf{⑤} CLIP Enc. 1\\\tiny[B,77,768]};
+\node[frozen] (clip2) at (3.3, -3.3)  {\textbf{⑥} CLIP Enc. 2\\\tiny[B,77,1280]};
+\node[data]   (ct)    at (7.0, -2.7)  {$\mathbf{c}_t$\\\tiny[B,\!77,\!2048]};
 
-    % --- LAYER 3: DIFFUSION PROCESS (Column 3) ---
-    % UNet is the core, sits in the middle
-    \node [box_frozen, right=3cm of vae, minimum height=4cm, text width=3.5cm] (unet) {\textbf{Backbone}\\\textbf{U-Net}\\\scriptsize (Frozen)\\\vspace{0.2cm}Denoising Process\\$z_t \rightarrow z_{t-1}$};
-    
-    % Control Signal Injection
-    \node [process, below=of unet, yshift=-0.5cm] (injection) {Residual Injection\\(Skip Connections)};
+%% ── Row 3 (y=-5.4): Mask path ───────────────────────────────────────────
+\node[data]      (mask) at (0.0, -5.4)  {\textbf{⑦}\\Binary Mask};
+\node[trainable] (cn)   at (3.8, -5.4)  {\textbf{⑧} ControlNet\\\tiny trainable};
 
-    % --- LAYER 4: OUTPUT & LOSS (Far Right) ---
-    \node [box_data, right=3cm of unet] (output) {\textbf{Noisy Latent}\\$z_t + \epsilon$};
-    \node [process, below=1cm of output] (loss) {\textbf{Loss Calculation}\\\scriptsize MSE($\epsilon, \epsilon_\theta$)};
-    
-    % --- CONNECTIONS ---
-    
-    % Text Flow
-    \draw [line] (prompt) -- (clip);
-    \draw [line] (clip) -| node[near start, above] {Text Embeddings ($c_t$)} (unet.north);
-    \draw [line] (clip.east) .. controls +(2,0) and +(2,0) .. (controlnet.north east);
+%% ── U-Net (right column, spans all rows) ────────────────────────────────
+\node[frozen, minimum height=6.2cm, minimum width=3.5cm, text width=3.2cm]
+     (unet) at (15.3, -2.7)
+     {\textbf{⑨}\\SDXL U-Net\\Backbone\\\tiny (frozen)\\[6pt]
+      \scriptsize $\hat{\boldsymbol{\epsilon}}=\boldsymbol{\epsilon}_\theta(\mathbf{z}_t,t,\mathbf{c}_t,\mathbf{c}_s)$};
 
-    % Image Flow
-    \draw [line] (img) -- (vae);
-    \draw [line] (vae) -- node[above] {Latents $z_0$} (unet);
+%% ── Loss ─────────────────────────────────────────────────────────────────
+\node[lossbox] (loss) at (15.3, -7.2)
+     {\textbf{⑩} Min-SNR Loss\\\scriptsize $w(t)\bigl\|\boldsymbol{\epsilon}-\hat{\boldsymbol{\epsilon}}\bigr\|^2$};
 
-    % Control Flow
-    \draw [line] (mask) -- node[above] {Condition $c_s$} (controlnet);
-    % Route through Injection Node
-    \draw [dashedline] (controlnet.east) -- node[above] {Control Signal} (injection.west);
-    \draw [dashedline] (injection.north) -- (unet.south);
-    
-    % Training Loop (Symbolic)
-    \draw [line] (unet) -- node[above] {Prediction $\epsilon_\theta$} (output);
-    \draw [line] (output) -- (loss);
-    % Reroute backprop to go under everything
-    \draw [dashedline] (loss.south) -- ++(0,-4.5cm) -| node[near start, below] {Backprop (Gradients)} (controlnet.south);
+%% ── Connections: Row 1 ───────────────────────────────────────────────────
+\draw[arr] (img)   -- (vae);
+\draw[arr] (vae)   -- (z0);
+\draw[arr] (z0)    -- node[above]{\tiny $+\boldsymbol{\epsilon}$} (sched);
+\draw[arr] (sched) -- (zt);
+\draw[arr] (zt.east) -- ++(0.5,0) |- (unet.north east);
 
-    % --- GROUPING & BACKGROUNDS ---
-    \begin{scope}[on background layer]
-        % Blue Zone: Data Preparation
-        \node [fill=blue!5, fit=(img) (mask) (prompt), rounded corners, draw=blue!10, label=above:\textbf{Data Preparation}] (prep_zone) {};
-        
-        % Gray Zone: Pretrained Frozen Model
-        \node [fill=gray!5, fit=(clip) (vae) (unet), rounded corners, draw=gray!20, label=above:\textbf{Frozen Foundation Model}] (frozen_zone) {};
-        
-        % Orange Zone: Trainable Parts
-        \node [fill=orange!5, fit=(controlnet) (injection), rounded corners, draw=orange!20, label=below:\textbf{Trainable Integration}] (train_zone) {};
-    \end{scope}
+%% ── Connections: Row 2 ───────────────────────────────────────────────────
+\draw[arr] (prom.east) -- ++(0.25,0) |- (clip1.west);
+\draw[arr] (prom.east) -- ++(0.25,0) |- (clip2.west);
+\draw[arr] (clip1.east) -- ++(0.35,0) |- (ct.north west);
+\draw[arr] (clip2.east) -- ++(0.35,0) |- (ct.south west);
+\draw[arr] (ct.east) -- ++(0.5,0) |- (unet.west);
+
+%% ── Connections: Row 3 ───────────────────────────────────────────────────
+\draw[arr]  (mask.east) -- (cn.west);
+\draw[darr, orange!70] (cn.east) -- ++(1.5,0)
+    node[above, xshift=0.4cm, font=\sffamily\tiny, black]{zero-conv residuals}
+    |- (unet.south east);
+
+%% ── Loss output ──────────────────────────────────────────────────────────
+\draw[arr] (unet.south) -- node[right, font=\sffamily\tiny]{$\hat{\boldsymbol{\epsilon}}$} (loss.north);
+
+%% ── Backprop (U-shaped path below everything) ────────────────────────────
+\coordinate (bp1) at ($(loss.south) + (0,-0.6)$);
+\coordinate (bp2) at (cn.south |- bp1);
+\draw[darr, orange!60]
+    (loss.south) -- (bp1)
+    -- node[below, font=\sffamily\tiny, black]{backprop (ControlNet only)} (bp2)
+    -- (cn.south);
+
+%% ── Background zones ─────────────────────────────────────────────────────
+\begin{scope}[on background layer]
+    \node[fill=gray!4, draw=gray!15, rounded corners=8pt,
+          fit=(vae)(clip1)(clip2)(unet), inner sep=12pt,
+          label={[font=\sffamily\scriptsize\bfseries, gray]above:Frozen Foundation Model (no gradients)}] {};
+    \node[fill=orange!3, draw=orange!15, rounded corners=6pt,
+          fit=(cn), inner sep=10pt,
+          label={[font=\sffamily\scriptsize\bfseries, orange!70]below:Trainable}] {};
+\end{scope}
 
 \end{tikzpicture}
 \end{document}

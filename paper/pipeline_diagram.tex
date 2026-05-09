@@ -2,46 +2,99 @@
 \usepackage[utf8]{inputenc}
 \usepackage{tikz}
 \usetikzlibrary{shapes.geometric, arrows, positioning, fit, backgrounds, calc}
+\usepackage{amsmath, amssymb}
 \usepackage{helvet}
 \renewcommand{\familydefault}{\sfdefault}
+\usepackage{pifont}
+\usepackage{newunicodechar}
+\newunicodechar{①}{\ding{172}}
+\newunicodechar{②}{\ding{173}}
+\newunicodechar{③}{\ding{174}}
+\newunicodechar{④}{\ding{175}}
+\newunicodechar{⑤}{\ding{176}}
+\newunicodechar{⑥}{\ding{177}}
+\newunicodechar{⑦}{\ding{178}}
+\newunicodechar{⑧}{\ding{179}}
+\newunicodechar{⑨}{\ding{180}}
+\newunicodechar{⑩}{\ding{181}}
 
 \begin{document}
 \begin{tikzpicture}[
-    node distance=1.5cm,
-    auto,
-    scale=0.9,
-    transform shape,
-    box/.style={rectangle, rounded corners, minimum width=2.5cm, minimum height=1.5cm, align=center, draw=black!70, very thick, font=\sffamily},
-    maskstep/.style={box, fill=purple!10, draw=purple!60},
-    controlstep/.style={box, fill=orange!10, draw=orange!60},
-    genstep/.style={box, fill=blue!10, draw=blue!60},
-    image/.style={rectangle, minimum size=1.8cm, align=center, draw=black!50, fill=white, thick, font=\sffamily\small},
-    arrow/.style={-latex, thick, line width=1.5pt}
+    scale=0.88, transform shape,
+    frozen/.style={rectangle, rounded corners=4pt, minimum width=3.0cm, minimum height=1.1cm,
+                   align=center, draw=gray!70, fill=gray!12, very thick, font=\sffamily\small},
+    trainable/.style={rectangle, rounded corners=4pt, minimum width=3.0cm, minimum height=1.1cm,
+                      align=center, draw=orange!80, fill=orange!12, very thick, font=\sffamily\small},
+    input/.style={rectangle, rounded corners=4pt, minimum width=3.0cm, minimum height=1.1cm,
+                  align=center, draw=blue!60, fill=blue!6, thick, font=\sffamily\small},
+    output/.style={rectangle, rounded corners=4pt, minimum width=3.0cm, minimum height=1.1cm,
+                   align=center, draw=teal!60, fill=teal!6, thick, font=\sffamily\small},
+    arr/.style={thick, ->, >=stealth, line width=1.0pt},
+    darr/.style={thick, ->, >=stealth, dashed, line width=1.0pt}
 ]
 
-    % Step 1: Mask
-    \node[maskstep] (mask_gen) {\textbf{Mask Generation}\\\scriptsize (VAE/Grid)};
-    \node[image, right=1cm of mask_gen] (mask_img) {\textbf{Mask Image}};
-    
-    % Step 2: ControlNet
-    \node[controlstep, right=1.5cm of mask_img] (controlnet) {\textbf{ControlNet}\\\scriptsize Conditioning};
-    
-    % Step 3: Generation
-    \node[genstep, right=1.5cm of controlnet] (diffusion) {\textbf{Diffusion Model}\\\scriptsize (Stable Diffusion)};
-    
-    % Output
-    \node[image, right=1.5cm of diffusion] (output) {\textbf{Synthetic Lesion}};
+%% ── Stage 1: Inputs ─────────────────────────────────────────────────────
+\node[input] (mask) at (0, 0.9)
+    {\textbf{①} Binary Mask\\\scriptsize(real or DDPM-generated)};
 
-    % Connections
-    \draw[arrow] (mask_gen) -- (mask_img);
-    \draw[arrow] (mask_img) -- (controlnet);
-    \draw[arrow] (controlnet) -- node[above] {\scriptsize Guidance} (diffusion);
-    \draw[arrow] (diffusion) -- (output);
-    
-    % Annotations
-    \node[below=0.1cm of mask_gen] {\scriptsize Step 1};
-    \node[below=0.1cm of controlnet] {\scriptsize Step 2};
-    \node[below=0.1cm of diffusion] {\scriptsize Step 3};
+\node[input] (text) at (0,-0.9)
+    {\textbf{②} Text Prompt\\\scriptsize\textit{"dermoscopy, benign/malignant..."}};
+
+%% ── Stage 2: Conditioning ───────────────────────────────────────────────
+\node[frozen]    (clip) at (5.0,-0.9)
+    {\textbf{③} Dual CLIP Encoders\\\scriptsize$\mathbf{c}_t\!\in\!\mathbb{R}^{B\times77\times2048}$};
+
+\node[trainable] (cn)   at (5.0, 0.9)
+    {\textbf{④} ControlNet\\\scriptsize(trainable copy of U-Net enc.)};
+
+%% ── Stage 3: Synthesis ──────────────────────────────────────────────────
+\node[frozen] (unet) at (10.2, 0)
+    {\textbf{⑤} SDXL U-Net Backbone\\\scriptsize(frozen, 50-step DPM-Solver++)};
+
+\node[frozen] (vae)  at (14.0, 0)
+    {\textbf{⑥} VAE Decoder\\\scriptsize(frozen, $8\times$ upsample)};
+
+\node[output] (out)  at (17.6, 0)
+    {\textbf{⑦} Synthetic\\Dermoscopy Image};
+
+%% ── Gaussian noise input into U-Net ─────────────────────────────────────
+\node[font=\sffamily\scriptsize, gray] (noise) at (10.2, 1.8)
+    {$\mathbf{z}_T\!\sim\!\mathcal{N}(\mathbf{0},\mathbf{I})$ \ (initial noise)};
+
+%% ── Connections ─────────────────────────────────────────────────────────
+% Mask → ControlNet
+\draw[arr] (mask.east) -- (cn.west);
+
+% Text → CLIP
+\draw[arr] (text.east) -- (clip.west);
+
+% CLIP → U-Net (text embeddings)
+\draw[arr] (clip.east) -- ++(0.3,0) |- (unet.south);
+
+% ControlNet → U-Net (residuals, dashed orange)
+\draw[darr, orange!70] (cn.east) --
+    node[above, font=\sffamily\scriptsize, black]{residuals (zero-conv)}
+    (unet.west|-cn);
+
+% Noise → U-Net
+\draw[arr, gray] (noise.south) -- (unet.north);
+
+% U-Net → VAE → Output
+\draw[arr] (unet) -- (vae);
+\draw[arr] (vae)  -- (out);
+
+%% ── Background stage zones ───────────────────────────────────────────────
+\begin{scope}[on background layer]
+    \node[fill=blue!3, draw=blue!12, rounded corners=6pt,
+          fit=(mask)(text), inner sep=10pt,
+          label={[font=\sffamily\scriptsize\bfseries, blue!50]above:Inputs}] {};
+    \node[fill=orange!3, draw=orange!12, rounded corners=6pt,
+          fit=(clip)(cn), inner sep=10pt,
+          label={[font=\sffamily\scriptsize\bfseries, orange!70]above:Conditioning}] {};
+    \node[fill=gray!3, draw=gray!12, rounded corners=6pt,
+          fit=(unet)(vae)(out)(noise), inner sep=10pt,
+          label={[font=\sffamily\scriptsize\bfseries, gray!70]above:Image Synthesis}] {};
+\end{scope}
 
 \end{tikzpicture}
 \end{document}
