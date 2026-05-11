@@ -1,10 +1,4 @@
 \section{Conclusion}
 
-We presented \textit{Mask2Derm}, a novel framework for generating high-fidelity, geometrically controllable synthetic dermoscopic images. By integrating ControlNet with an optics-inspired lens simulation, we addressed two critical challenges in medical image synthesis: strict adherence to lesion geometry and the replication of domain-specific optical characteristics.
-
-Our experimental results demonstrate that the pipeline produces synthetic images that are both visually coherent and statistically aligned with real distributions (FID: 62.33, KID: 0.07). The shape consistency analysis revealed mean IoU of 0.8658 and mean DSC of 0.9222, confirming ControlNet's effectiveness as a spatial conditioning mechanism. The TSTR validation provided the most compelling evidence of clinical value: a segmentation model trained \emph{only} on synthetic data surpassed an ImageNet baseline by $+13.4\%$ IoU on real patient images.
-
-The skin-tone bias inherited from the underlying generative model and training corpus is a critical limitation we highlight explicitly rather than minimize. Future work will focus on (i) expanding training data to include diverse Fitzpatrick-scale skin tones, (ii) incorporating learnable optical aberrations for tighter device-specific simulation, and (iii) extending Mask2Derm to multi-class lesion generation with separate conditional pathways per diagnostic category. We consider equitable coverage across skin types a necessary condition for responsible clinical deployment, not an optional enhancement.
-
 \section*{Acknowledgements}
-This work was supported by xxxxx under the R\&D project carried out by xxxxx.
+This work was supported by TUBITAK (The Scientific and Technological Research Council of Turkey) under the R\&D project carried out by Amatis.

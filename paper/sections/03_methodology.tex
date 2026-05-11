@@ -1,6 +1,8 @@
 \section{Methodology}\label{sec:method}
 
 % ------------------------------------------------------------------
+% Data preparation paragraphs (before any subsection)
+% ------------------------------------------------------------------
 
 \paragraph{Dataset.}
 We use HAM10000~\cite{Tschandl2018HAM10000} as our training source. Among publicly available dermoscopy benchmarks, HAM10000 offers the largest collection of expert-annotated pixel-level segmentation masks, comprising 10,015 images acquired across multiple institutions and imaging devices. This scale and acquisition diversity make it well-suited for training a generative model that must capture a broad range of lesion morphologies and imaging conditions. The dataset is split into training (80\%), validation (10\%), and held-out test (10\%) sets.
@@ -11,9 +13,9 @@ Raw images sourced from heterogeneous devices differ in field-of-view shape, bri
 First, we define the radial distance $d(x, y) = \sqrt{(x - c_x)^2 + (y - c_y)^2}$ from the image centre $(c_x, c_y)$. This distance map drives both the circular aperture mask $M(d)$ and the vignetting falloff $V(d)$:
 \begin{equation}
     M(d) = \begin{cases}
-    1, & d \leq R \\
-    \text{smooth feather}, & R < d \leq R + \delta \\
-    0, & d > R + \delta
+               1, & d \leq R \\
+               \text{smooth feather}, & R < d \leq R + \delta \\
+               0, & d > R + \delta
     \end{cases}
     \quad \text{and} \quad
     V(d) = (1 - \alpha) + \alpha \left( 1 - (d/R)^2 \right)^\gamma
@@ -27,12 +29,10 @@ Second, we simulate barrel distortion by remapping pixel coordinates via a radia
 \end{align}
 where $k_1 < 0$ induces the barrel effect. The final standardized image combines all three components: $I'(x, y) = I(x_d, y_d) \cdot M(d) \cdot V(d)$.
 
-Each processed image–mask pair is then used as a training sample, ensuring the model learns to generate synthetic images with consistent optical characteristics.
-
 \begin{figure}[H]
     \centering
     \includegraphics[width=\linewidth]{figures/optics_pipeline.png}
-    \caption{Physics-based optical simulation pipeline applied to raw dermoscopy images. \textbf{Stage 1} computes the radial distance map $d(x,y)$ from the image centre and derives the circular aperture mask $M(d)$ and vignetting falloff $V(d)$. \textbf{Stage 2} remaps pixel coordinates via the barrel distortion model to produce the barrel-distorted image $I(x_d, y_d)$. \textbf{Stage 3} multiplies the distorted image by the combined map $M(d)\!\cdot\!V(d)$ to yield the final standardized image $I'(x,y)=I(x_d,y_d)\cdot M(d)\cdot V(d)$.}
+    \caption{Physics-based optical simulation pipeline applied to raw dermoscopy images. \textbf{Stage 1} computes the radial distance map $d(x,y)$ and derives the aperture mask $M(d)$ and vignetting map $V(d)$. \textbf{Stage 2} remaps pixel coordinates via barrel distortion to produce $I(x_d, y_d)$. \textbf{Stage 3} multiplies the distorted image by $M(d)\!\cdot\!V(d)$ to yield the standardized image $I'(x,y)$.}
     \label{fig:optics}
 \end{figure}
 
@@ -41,20 +41,13 @@ Dermoscopic images acquired under varying illumination conditions often exhibit 
 \begin{equation}
     H'(v) = \min\!\left(H(v),\, \lambda \cdot \frac{N_{\text{tile}}}{L}\right)
 \end{equation}
-where $H(v)$ is the histogram count at intensity $v$, $N_{\text{tile}}$ is the number of pixels per tile, and $L$ is the number of intensity levels. The clipped excess is redistributed uniformly across all bins. The enhanced luminance channel is then recombined with the original colour channels, preserving hue and saturation while improving structural visibility. We use a clip limit of $\lambda=2.0$ and bilinear interpolation at tile boundaries to avoid blocking artefacts.
-
+where $H(v)$ is the histogram count at intensity $v$, $N_{\text{tile}}$ is the number of pixels per tile, and $L$ is the number of intensity levels. The clipped excess is redistributed uniformly across all bins. We use a clip limit of $\lambda=2.0$ and bilinear interpolation at tile boundaries to avoid blocking artefacts.
 
 \paragraph{Data augmentation.}
-To improve generalization and reduce overfitting given the limited size of the training corpus, we apply stochastic augmentation exclusively to the training split. Geometric transformations (random horizontal flip with $p=0.5$, random vertical flip with $p=0.5$, and random rotation up to $30^\circ$) are applied identically to both the image and its corresponding mask to preserve spatial alignment. Colour augmentation is then applied to the image only, since altering the mask photometrically is meaningless: brightness, contrast, saturation, and hue are perturbed with factors of $0.3$, $0.3$, $0.4$, and $0.08$ respectively. To ensure strict synchronization between geometric transforms on image–mask pairs, both are processed under the same random seed at each iteration.
+To improve generalization and reduce overfitting, we apply stochastic augmentation exclusively to the training split. Geometric transforms (random horizontal and vertical flips with $p=0.5$, random rotation up to $30^\circ$) are applied identically to both the image and its mask to preserve spatial alignment. Colour augmentation is applied to the image only: brightness, contrast, saturation, and hue are perturbed with factors of $0.3$, $0.3$, $0.4$, and $0.08$ respectively.
 
 \paragraph{Normalization and mask conditioning.}
-After augmentation, images are converted to tensors and normalized to $[-1, 1]$ via
-\begin{equation}
-    \hat{I} = \frac{I - 0.5}{0.5}
-\end{equation}
-which centres the distribution around zero. Binary segmentation masks undergo a separate conditioning preparation: each mask is resized to $512\times512$ using nearest-neighbour interpolation to preserve sharp boundaries, binarized at a threshold of 127, and replicated across three channels to form an RGB tensor in $[0, 1]$. This three-channel representation is required by the ControlNet conditioning encoder, which expects an image-like spatial input.
-
-
+After augmentation, images are normalized to $[-1, 1]$ via $\hat{I} = (I - 0.5)/0.5$. Binary segmentation masks undergo separate conditioning preparation: each mask is resized to $512\times512$ using nearest-neighbour interpolation to preserve sharp boundaries, binarized at threshold 127, and replicated across three channels to form an RGB tensor in $[0, 1]$.
 \begin{figure}[H]
     \centering
     \begin{subfigure}[b]{0.48\linewidth}
@@ -68,84 +61,216 @@ which centres the distribution around zero. Binary segmentation masks undergo a 
         \includegraphics[height=5cm,keepaspectratio]{figures/after.jpg}
         \caption{After preprocessing}
     \end{subfigure}
-    \caption{Effect of the full preprocessing pipeline on a dermoscopic image: circular aperture masking, vignetting correction, barrel distortion compensation, and CLAHE contrast enhancement are applied in sequence.}
+    \caption{Effect of the full preprocessing pipeline on a dermoscopic image: circular aperture masking, vignetting correction, barrel distortion compensation, and CLAHE contrast enhancement applied in sequence.}
     \label{fig:clahe}
 \end{figure}
 
-\subsection{Mask Generation Pipeline}
-
-When real segmentation masks are not available, Mask2Derm includes an optional mask generation module: a dedicated Denoising Diffusion Probabilistic Model (DDPM)~\cite{ho2020denoising} trained exclusively on binary dermoscopic lesion masks. The module is fully decoupled from the main image synthesis pipeline — real masks, synthetically generated masks, and hand-drawn annotations are all valid inputs to the ControlNet stage.
-
-\paragraph{UNet architecture.}
-The noise prediction backbone is a four-level encoder–decoder UNet with skip connections. Channel widths follow $[C,\, 2C,\, 4C,\, 4C]$ where $C$ is a configurable base count, giving a spatial bottleneck of $8\times8$ at training resolution $128\times128$. Every encoder level applies two residual blocks followed by a strided $3\times3$ convolution that halves the spatial resolution; the symmetric decoder uses transposed convolutions for upsampling and concatenates the corresponding encoder features (skip connections) before each block pair. Self-attention is inserted at the two deepest levels, allowing the model to reason about global lesion shape rather than only local textures.
-
-Each residual block conditions on the current timestep $t$ via Feature-wise Linear Modulation (FiLM)~\cite{perez2018film}: a sinusoidal embedding of $t$ is projected through a small MLP to produce a scale–shift pair $(\boldsymbol{\gamma}, \boldsymbol{\beta})$, which modulates the Group-Normalized feature map as $\mathbf{h}' = \mathbf{h} \odot (1 + \boldsymbol{\gamma}) + \boldsymbol{\beta}$. This lets the network adapt its behaviour continuously across the $T=1000$ noise levels without separate per-timestep parameters.
-
-\paragraph{Forward diffusion and cosine noise schedule.}
-The DDPM forward process gradually corrupts a clean binary mask $\mathbf{x}_0 \in [-1,1]^{1\times H\times W}$ by adding Gaussian noise. Because the forward chain is Markovian with Gaussian transitions, the noisy sample at any timestep $t$ can be computed in closed form:
-\begin{equation}
-    \mathbf{x}_t = \sqrt{\bar{\alpha}_t}\,\mathbf{x}_0 + \sqrt{1 - \bar{\alpha}_t}\,\boldsymbol{\epsilon}, \quad \boldsymbol{\epsilon} \sim \mathcal{N}(\mathbf{0},\mathbf{I})
-\end{equation}
-where $\bar{\alpha}_t = \prod_{s=1}^{t}(1-\beta_s)$ is the cumulative noise retention factor. We use the cosine noise schedule~\cite{nichol2021improved},
-\begin{equation}
-    \bar{\alpha}_t = \frac{f(t)}{f(0)}, \quad f(t) = \cos^2\!\!\left(\frac{t/T + s}{1 + s} \cdot \frac{\pi}{2}\right), \quad s = 0.008
-\end{equation}
-instead of the original linear schedule, because the cosine decay keeps $\bar{\alpha}_t$ high at small $t$, preserving more signal in the low-noise regime and producing sharper binary boundaries.
-
-\paragraph{Training objective.}
-The UNet $\boldsymbol{\epsilon}_\phi$ is trained to predict the noise $\boldsymbol{\epsilon}$ added to a clean mask, given the noisy observation $\mathbf{x}_t$ and the timestep $t$. The loss is the mean squared error between predicted and actual noise:
-\begin{equation}
-    \mathcal{L}_\text{mask} = \mathbb{E}_{\mathbf{x}_0,\, \boldsymbol{\epsilon},\, t}\!\left[\left\| \boldsymbol{\epsilon} - \boldsymbol{\epsilon}_\phi(\mathbf{x}_t, t) \right\|^2_2 \right]
-\end{equation}
-The model is trained for 50 epochs with AdamW ($\text{lr} = 2\times10^{-4}$, weight decay $= 10^{-4}$) and a cosine annealing schedule. Gradient norms are clipped at $1.0$.
-
-\paragraph{DDIM inference and post-processing.}
-At inference, standard DDPM would require $T=1000$ sequential network evaluations. We instead use DDIM~\cite{song2022denoisingdiffusionimplicitmodels}, a deterministic non-Markovian sampler that achieves equivalent quality in $S \ll T$ steps. At each DDIM step, the network estimates the clean mask $\hat{\mathbf{x}}_0$ from the current noisy state and re-noises it to the preceding noise level:
-\begin{align}
-    \hat{\mathbf{x}}_0 &= \frac{\mathbf{x}_{\tau_i} - \sqrt{1 - \bar{\alpha}_{\tau_i}}\;\boldsymbol{\epsilon}_\phi(\mathbf{x}_{\tau_i}, \tau_i)}{\sqrt{\bar{\alpha}_{\tau_i}}}\,, \nonumber \\
-    \mathbf{x}_{\tau_{i-1}} &= \sqrt{\bar{\alpha}_{\tau_{i-1}}}\;\hat{\mathbf{x}}_0 + \sqrt{1 - \bar{\alpha}_{\tau_{i-1}}}\;\boldsymbol{\epsilon}_\phi(\mathbf{x}_{\tau_i}, \tau_i)
-\end{align}
-We use $S=50$ steps, reducing inference cost by $20\times$. The continuous output is binarized at zero and passed through a fixed post-processing pipeline: (1) the largest connected component is retained, (2) morphological opening with a disk of radius 3 removes edge noise, (3) binary hole-filling ensures the lesion is topologically solid, (4) Gaussian smoothing ($\sigma=2$) followed by re-thresholding at $0.4$ produces clean boundaries. Masks are finally checked for plausibility — lesion area must fall between $2\%$ and $80\%$ of the image, and no foreground pixel may touch the image border — and upsampled from $128\times128$ to $512\times512$ via LANCZOS resampling.
-
 % ------------------------------------------------------------------
-\subsection{ControlNet-based Image Synthesis}\label{sec:controlnet}
 
-The image synthesis stage takes a binary lesion mask and a text prompt as inputs and produces a photorealistic dermoscopic image. It is built on Stable Diffusion XL (SDXL)~\cite{podell2023sdxl} with a ControlNet~\cite{zhang2023adding} module for pixel-aligned spatial conditioning. Figure~\ref{fig:pipeline} shows the seven-component inference pipeline: a \textbf{①~binary mask} (real or DDPM-generated) and a \textbf{②~text prompt} feed into the conditioning stage; the prompt is processed by \textbf{③~dual CLIP encoders}; the mask is processed by the \textbf{④~ControlNet}, which injects residuals into the \textbf{⑤~frozen SDXL U-Net backbone}; the denoised latent is decoded by the \textbf{⑥~VAE decoder} to produce the \textbf{⑦~synthetic dermoscopy image}.
+\subsection{Model Architecture}\label{sec:arch}
+
+Mask2Derm maps a binary lesion mask to a photorealistic dermoscopic image conditioned on a free-form text prompt. Achieving this requires a generative model that simultaneously produces clinically realistic skin texture, respects the spatial extent of the lesion specified by the mask, and responds to free-form text prompts describing the desired image appearance. Training such a model from scratch on a small medical dataset is infeasible: the training corpus does not provide sufficient diversity for the model to generalize across imaging devices, lesion morphologies, and acquisition conditions. Mask2Derm therefore adopts a transfer-learning strategy, building on RealVisXL V4.0~\cite{SG161222RealVisXL}, a photorealism-focused fine-tune of Stable Diffusion XL (SDXL)~\cite{podell2023sdxl} built on the latent diffusion framework~\cite{Rombach2022LDM}. RealVisXL contributes learned representations of skin appearance, lighting, and photographic realism; the domain adaptation task reduces to conditioning this pretrained model on dermoscopy-specific mask and text inputs while preserving its existing visual knowledge.
+
+Before describing the full training loop, it is helpful to understand the four fundamental operations the pipeline performs at every step: \emph{(i)}~compressing the input image into a compact latent representation, \emph{(ii)}~corrupting that representation with structured noise, \emph{(iii)}~encoding the text prompt into a vector the model can attend to, and \emph{(iv)}~conditioning generation spatially via the binary lesion mask. Each is explained below.
+
+\paragraph{Step 1: Compressing the image into a latent representation.}
+The term \emph{latent} (from the Latin \emph{latere}, meaning ``to lie hidden'') refers to variables that are not directly observed but are inferred to govern the structure of observable data. In our case, the latent space is a compressed, abstract representation of an image that retains its essential visual content but discards redundant pixel-level detail.
+
+Performing diffusion directly in pixel space at $512\times512$ is computationally prohibitive: each denoising step would operate on $512\times512\times3\approx786{,}000$ values. Instead, Mask2Derm first projects every image into a far more compact space using a Variational Autoencoder (VAE)~\cite{Rombach2022LDM}. A VAE is a generative model that learns to encode high-dimensional inputs into a low-dimensional latent distribution, and to reconstruct the original from samples of that distribution. The frozen VAE encoder $\mathcal{E}$ maps each $512\times512$ RGB image $\mathbf{x}$ to a $64\times64\times4$ latent tensor:
+\begin{equation}
+    \mathbf{z}_0 = \mathcal{E}(\mathbf{x}) \in \mathbb{R}^{64\times64\times4}
+\end{equation}
+This is an $8\times$ spatial reduction ($64^2 / 512^2 = 1/64$ of the original element count), yet the compression is nearly lossless for natural image content: the paired VAE decoder $\mathcal{D}$ recovers perceptually sharp images from the latent. All subsequent noise addition, denoising, and loss computation occur in this compact $64\times64\times4$ space. The VAE weights are never updated during training. Figure~\ref{fig:vae} illustrates the compression process on a representative skin lesion image, showing the four individual latent channels that encode the compressed image content.
 
 \begin{figure}[H]
     \centering
-    \resizebox{\linewidth}{!}{\input{pipeline_diagram.tex}}
-    \caption{Inference pipeline of Mask2Derm. Seven numbered components: ①~binary mask input, ②~text prompt, ③~dual CLIP encoders, ④~ControlNet (trainable), ⑤~frozen SDXL U-Net backbone, ⑥~frozen VAE decoder, ⑦~synthetic dermoscopy image. Orange dashed arrows indicate the ControlNet residual path.}
-    \label{fig:pipeline}
+    \includegraphics[width=\linewidth]{figures/vae_output.png}
+    \caption{VAE-based latent compression. A $512\times512$ dermoscopic image is encoded into a $64\times64\times4$ latent tensor, an $8\times$ reduction in spatial dimension. Each of the four channels captures complementary aspects of the image structure; together they constitute the representation on which the diffusion process operates.}
+    \label{fig:vae}
 \end{figure}
 
-\paragraph{① Input image and ② VAE encoding.}
-Following the LDM framework~\cite{Rombach2022LDM}, all diffusion operations are performed in the compressed latent space of a frozen Variational Autoencoder (VAE) rather than in pixel space. The VAE encoder $\mathcal{E}$ maps a training image $\mathbf{x}$ to a latent $\mathbf{z} = \mathcal{E}(\mathbf{x}) \cdot s_f$, where $s_f$ normalizes the latent distribution. For SDXL's VAE, the spatial compression is $8\times$ in each dimension — a $512\times512$ image becomes a $64\times64\times4$ tensor. At inference, the VAE decoder $\mathcal{D}$ converts the denoised latent back to pixel space. Working in this lower-dimensional space makes diffusion training substantially faster and lets the model focus on semantic structure rather than low-level pixel statistics.
-
-\paragraph{③ Noise scheduler.}
-During training, independent Gaussian noise $\boldsymbol{\epsilon}\sim\mathcal{N}(\mathbf{0},\mathbf{I})$ is added to the clean latent $\mathbf{z}_0$ at a uniformly sampled timestep $t$ using the DDPM scheduler, yielding the noisy latent $\mathbf{z}_t = \sqrt{\bar{\alpha}_t}\,\mathbf{z}_0 + \sqrt{1-\bar{\alpha}_t}\,\boldsymbol{\epsilon}$. At inference, this process runs in reverse: the U-Net denoises starting from pure Gaussian noise $\mathbf{z}_T\sim\mathcal{N}(\mathbf{0},\mathbf{I})$.
-
-\paragraph{④ Text prompt and ⑤–⑥ dual CLIP encoders.}
-SDXL conditions on text through two CLIP encoders in parallel~\cite{podell2023sdxl}. The \textbf{⑤~first encoder} (\texttt{CLIPTextModel}) produces token features of shape $[B,77,768]$ from the penultimate transformer layer. The \textbf{⑥~second encoder} (\texttt{CLIPTextModelWithProjection}) produces features of shape $[B,77,1280]$ together with a pooled global embedding of shape $[B,1280]$. The two token sequences are concatenated along the feature axis to form $\mathbf{c}_t\in\mathbb{R}^{B\times77\times2048}$, which is passed to all U-Net cross-attention layers. The pooled embedding is concatenated with image-size metadata and projected into the timestep embedding, providing a coarse global context signal. We always report original size as $1024\times1024$ regardless of training resolution, keeping SDXL in its high-quality generation regime.
-
-\paragraph{⑦ Binary mask and ⑧ ControlNet.}
-A plain SDXL model has no mechanism to constrain the spatial layout of generated content. ControlNet~\cite{zhang2023adding} addresses this by creating a \emph{trainable copy} of the frozen U-Net encoder and bottleneck blocks (component~\textbf{⑧}). The \textbf{⑦~binary mask} $\mathbf{c}_s$ — a three-channel tensor normalized to $[0,1]$ — is first encoded by a small trainable convolutional stack and added to the ControlNet's input. The ControlNet processes the mask alongside the noisy latent $\mathbf{z}_t$ and returns residual feature maps that are injected into the skip connections of the frozen U-Net decoder via \emph{zero convolutions}: $1\times1$ convolutions initialized with weights and biases at exactly zero. Denoting the frozen U-Net block as $\mathcal{F}(\cdot;\Theta)$ and its trainable copy as $\mathcal{F}(\cdot;\Theta_c)$, the residual at each skip connection is:
+\paragraph{Step 2: Corrupting the latent with structured noise.}
+Once the clean latent $\mathbf{z}_0$ is obtained, the DDPM forward process gradually corrupts it by adding Gaussian noise over $T=1000$ discrete timesteps. At any timestep $t$, the noisy latent is given by:
 \begin{equation}
-    \Delta\mathbf{y} = \mathcal{Z}\!\left(\mathcal{F}\!\left(\mathbf{x} + \mathcal{Z}(\mathbf{c}_s;\Theta_{z_1});\,\Theta_c\right);\,\Theta_{z_2}\right)
+    \mathbf{z}_t = \sqrt{\bar{\alpha}_t}\,\mathbf{z}_0 + \sqrt{1 - \bar{\alpha}_t}\,\boldsymbol{\epsilon}, \quad \boldsymbol{\epsilon} \sim \mathcal{N}(\mathbf{0},\mathbf{I})
 \end{equation}
-where $\mathcal{Z}(\cdot;\Theta_{z_i})$ are zero-initialized $1\times1$ convolutions. At step zero $\Delta\mathbf{y}=\mathbf{0}$, leaving the frozen backbone entirely unchanged; as training proceeds, the zero convolutions acquire nonzero weights and mask conditioning is gradually learned. The ControlNet weights $\Theta_c$ are initialized from the frozen U-Net encoder (\texttt{from\_unet}) to avoid any task-specific prior mismatched to dermoscopy.
+where $\bar{\alpha}_t$ is a monotonically decreasing sequence controlled by the noise schedule. At $t=0$ the latent is nearly clean; at $t=T$ it is indistinguishable from pure Gaussian noise. The model is trained to \emph{reverse} this process: given $\mathbf{z}_t$ and the timestep $t$, it predicts the noise $\boldsymbol{\epsilon}$ that was added, and thereby recovers $\mathbf{z}_0$. Figure~\ref{fig:noise} shows how a real skin lesion latent evolves as noise is progressively applied across timesteps.
 
-\paragraph{⑨ Frozen U-Net backbone.}
-The frozen SDXL U-Net (\textbf{⑨}) receives three inputs simultaneously: the noisy latent $\mathbf{z}_t$, the joint text embedding $\mathbf{c}_t$, and the ControlNet residuals. It predicts the noise $\hat{\boldsymbol{\epsilon}} = \boldsymbol{\epsilon}_\theta(\mathbf{z}_t, t, \mathbf{c}_t, \mathbf{c}_s)$. Only the ControlNet parameters $\Theta_c$ receive gradient updates; the U-Net, VAE, and both CLIP encoders are entirely frozen.
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{figures/noise_schedule.png}
+    \caption{DDPM forward process applied to a skin lesion latent. Starting from the clean latent $\mathbf{z}_0$, Gaussian noise is added according to $\mathbf{z}_t = \sqrt{\bar{\alpha}_t}\,\mathbf{z}_0 + \sqrt{1-\bar{\alpha}_t}\,\boldsymbol{\epsilon}$. By $t=999$ the original structure is completely obscured. The denoising U-Net learns to reverse this process, recovering $\mathbf{z}_0$ step by step.}
+    \label{fig:noise}
+\end{figure}
 
-\paragraph{⑩ Training loss with Min-SNR weighting.}
-A standard DDPM loss weights all timesteps equally, causing high-noise steps (low SNR) to dominate the gradient and preventing the model from learning fine detail at low-noise steps. We apply Min-SNR-$\gamma$ weighting~\cite{hang2023efficient}, which scales each step's loss by a weight inversely proportional to its SNR:
-\begin{equation}
-    \mathcal{L} = \mathbb{E}_{\mathbf{z}_0,\boldsymbol{\epsilon},t,\mathbf{c}_t,\mathbf{c}_s}\!\left[w(t)\left\|\boldsymbol{\epsilon} - \boldsymbol{\epsilon}_\theta(\mathbf{z}_t, t, \mathbf{c}_t, \mathbf{c}_s)\right\|^2_2\right], \quad w(t) = \frac{\min(\mathrm{SNR}(t),\,\gamma)}{\mathrm{SNR}(t)}
-\end{equation}
-where $\mathrm{SNR}(t) = \bar{\alpha}_t / (1 - \bar{\alpha}_t)$ and $\gamma = 5$. High-SNR (low-noise) steps receive small weights; low-SNR (high-noise) steps receive weight $\approx 1$. This stabilizes convergence and visibly reduces the block artefacts that dominate early training when high-noise gradients are unweighted.
+\paragraph{Step 3: Encoding the text prompt into a conditioning vector.}
+Text prompts are discrete token sequences; the U-Net operates on continuous tensors. To bridge this gap, SDXL passes each prompt through two CLIP text encoders in parallel~\cite{podell2023sdxl}. The first encoder (\texttt{CLIPTextModel}) produces token-level semantic features of shape $[B,\,77,\,768]$ from its penultimate transformer layer. The second encoder (\texttt{CLIPTextModelWithProjection}) contributes complementary high-dimensional features of shape $[B,\,77,\,1280]$ together with a pooled global embedding of shape $[B,\,1280]$. The two token sequences are concatenated along the feature dimension to form the joint conditioning embedding $\mathbf{c}_t \in \mathbb{R}^{B\times77\times2048}$. Inside the U-Net, every transformer block attends to $\mathbf{c}_t$ through cross-attention, allowing the text prompt to modulate generated content at every spatial scale, from global appearance down to fine colour and texture detail. The pooled global embedding is additionally fused with size-conditioning metadata and projected into the timestep embedding, giving the model a coarse scene-level summary alongside the per-token signal. Both CLIP encoders remain frozen throughout training. Figure~\ref{fig:clip} illustrates this dual-encoder encoding pipeline.
 
-Training runs for 150 epochs in BF16 mixed precision with AdamW~\cite{loshchilov2018decoupled} ($\text{lr}=10^{-5}$, $\beta_1=0.9$, $\beta_2=0.999$, weight decay $=0.01$), a cosine schedule with 500 warm-up steps, per-device batch size 20, gradient accumulation over 8 steps (effective batch 160), and gradient clipping at $1.0$.
+\begin{figure}[H]
+  \centering
+  \begin{tikzpicture}[
+    >=stealth,
+    box/.style={rectangle, rounded corners=3pt, draw=black!60, fill=white,
+      thick, inner sep=7pt, font=\small, align=center, minimum width=3.8cm},
+    arr/.style={->, thick, draw=black!70}
+  ]
+    \node[box, fill=gray!10] (prompt) at (0,0)
+      {\textit{``dermoscopic skin lesion,}\\[-2pt]\textit{photorealistic, clinical photography''}};
+
+    \node[box, fill=blue!10]   (clip1) at (-2.8,-2.2) {CLIP ViT-L/14\\$[B,\;77,\;768]$};
+    \node[box, fill=purple!10] (clip2) at ( 2.8,-2.2) {OpenCLIP ViT-bigG/14\\$[B,\;77,\;1280]$};
+
+    \draw[arr] (prompt.south) -| (clip1.north);
+    \draw[arr] (prompt.south) -| (clip2.north);
+
+    \node[box, fill=orange!10] (concat) at (0,-4.4) {Concatenate};
+
+    \draw[arr] (clip1.south) |- (concat.west);
+    \draw[arr] (clip2.south) |- (concat.east);
+
+    \node[box, fill=green!10] (out) at (0,-6.2)
+      {$\mathbf{c}_t \in \mathbb{R}^{B \times 77 \times 2048}$};
+
+    \draw[arr] (concat.south) -- (out.north);
+  \end{tikzpicture}
+  \caption{Dual CLIP text encoding. The prompt is processed by two parallel frozen encoders whose token sequences are concatenated into the joint conditioning embedding $\mathbf{c}_t$.}
+  \label{fig:clip}
+\end{figure}
+
+\paragraph{Step 4: Spatial conditioning via ControlNet.}
+The three components above (latent representation, noisy latent, and text embedding) tell the model \emph{what} to generate, but not \emph{where} the lesion should appear. This spatial constraint is provided by a binary segmentation mask $\mathbf{c}_s \in \{0,1\}^{512\times512}$, which is replicated across three channels to form an RGB-format $[0,1]$ tensor and fed into the ControlNet.
+
+The ControlNet is a trainable copy of the frozen U-Net encoder, initialized from its weights so that it starts with the same visual priors. Because it is initialized this way (rather than from a pretrained segmentation model), it carries no domain-specific segmentation bias; it learns from scratch to translate mask geometry into generation guidance. The mask passes through the ControlNet's encoder and bottleneck at multiple spatial resolutions, producing a set of \emph{residual} feature maps at each level. These residuals are injected into the corresponding skip connections of the frozen U-Net decoder via zero-initialized $1\times1$ convolutions (zero convolutions). At initialization the zero convolutions output exactly zero, so the frozen backbone is completely unaffected; as training progresses they gradually open up, and the ControlNet learns to steer where the lesion appears without disrupting the U-Net's pretrained texture knowledge. Figure~\ref{fig:controlnet} illustrates this spatial conditioning pathway.
+
+\begin{figure}[H]
+  \centering
+  \resizebox{\linewidth}{!}{%
+  \begin{tikzpicture}[>=stealth]
+
+    % ── Binary mask (kare: 512×512) ───────────────────────────────────
+    \fill[black]    (-1.5,-1.5) rectangle (1.5,1.5);
+    \fill[white]    (0,0) ellipse (0.80 and 0.80);
+    \draw[black!40] (-1.5,-1.5) rectangle (1.5,1.5);
+    \node[font={\small\bfseries}] at (0,-1.85) {Binary Mask $\mathbf{c}_s$};
+    \node[font=\footnotesize]     at (0,-2.20) {$512\times512$};
+
+    % ── Arrow mask → ControlNet ───────────────────────────────────────
+    \draw[->,thick] (1.55,0) -- (2.45,0);
+
+    % ── ControlNet box (sağ kenarı x=4.85'te bitiyor) ────────────────
+    \node[rectangle, rounded corners=3pt, draw=blue!65!black, fill=blue!8,
+          thick, inner sep=8pt, font={\small\bfseries}, align=center,
+          minimum width=2.4cm, minimum height=4.2cm] (cn) at (3.62,0)
+      {ControlNet\\[4pt]{\footnotesize\normalfont trainable}\\
+       {\footnotesize\normalfont (U-Net encoder}\\
+       {\footnotesize\normalfont copy + zero conv)}};
+
+    % ── Spine başlar x=5.30'dan (ControlNet sağından 0.45 boşluk) ────
+    \draw[thick] (cn.east) -- (5.30,0);
+    \draw[thick] (5.30, 1.65) -- (5.30,-1.65);
+    \draw[->,thick] (5.30, 1.65) -- (5.60, 1.65);
+    \draw[->,thick] (5.30, 0.55) -- (5.60, 0.55);
+    \draw[->,thick] (5.30,-0.55) -- (5.60,-0.55);
+    \draw[->,thick] (5.30,-1.65) -- (5.60,-1.65);
+
+    % ── Feature map boxes --- genişlik çözünürlükle orantılı ────────────
+
+    % 64×64  genişlik=2.6  x: 5.60..8.20
+    \fill[blue!25]  (5.60, 1.25) rectangle (8.20, 2.05);
+    \draw[black!40] (5.60, 1.25) rectangle (8.20, 2.05);
+    \foreach \x in {6.27,6.93,7.60}
+      \draw[white,line width=0.7pt] (\x,1.25)--(\x,2.05);
+    \foreach \y in {1.52,1.78}
+      \draw[white,line width=0.7pt] (5.60,\y)--(8.20,\y);
+    \node[font={\footnotesize\bfseries}] at (6.90,1.65) {$64\times64$};
+
+    % 32×32  genişlik=2.0  x: 5.60..7.60
+    \fill[cyan!30]  (5.60, 0.15) rectangle (7.60, 0.95);
+    \draw[black!40] (5.60, 0.15) rectangle (7.60, 0.95);
+    \foreach \x in {6.27,6.93}
+      \draw[white,line width=0.7pt] (\x,0.15)--(\x,0.95);
+    \foreach \y in {0.42,0.68}
+      \draw[white,line width=0.7pt] (5.60,\y)--(7.60,\y);
+    \node[font={\footnotesize\bfseries}] at (6.60,0.55) {$32\times32$};
+
+    % 16×16  genişlik=1.5  x: 5.60..7.10
+    \fill[orange!40] (5.60,-0.95) rectangle (7.10,-0.15);
+    \draw[black!40]  (5.60,-0.95) rectangle (7.10,-0.15);
+    \foreach \x in {6.35}
+      \draw[white,line width=0.7pt] (\x,-0.95)--(\x,-0.15);
+    \foreach \y in {-0.68,-0.42}
+      \draw[white,line width=0.7pt] (5.60,\y)--(7.10,\y);
+    \node[font={\footnotesize\bfseries}] at (6.35,-0.55) {$16\times16$};
+
+    % 8×8    genişlik=1.0  x: 5.60..6.60
+    \fill[red!30]   (5.60,-2.05) rectangle (6.60,-1.25);
+    \draw[black!40] (5.60,-2.05) rectangle (6.60,-1.25);
+    \foreach \y in {-1.78,-1.52}
+      \draw[white,line width=0.7pt] (5.60,\y)--(6.60,\y);
+    \node[font={\footnotesize\bfseries}] at (6.10,-1.65) {$8\times8$};
+
+    % ── Dashed border (feature map'lerin tam dışında) ─────────────────
+    \draw[black!30, rounded corners=3pt, dashed]
+      (5.45, 2.22) rectangle (8.35,-2.22);
+
+    % ── Etiketler ────────────────────────────────────────────────────
+    \node[font={\small\bfseries}]       at (6.90,-2.55) {Control Signal};
+    \node[font={\footnotesize\itshape}] at (6.90,-2.88) {multi-scale feature maps};
+    \node[font={\footnotesize\itshape}] at (6.90,-3.18) {injected via zero conv};
+
+    % ── ⊕ nodes (defined early so anchors are available below) ──────────
+    \node[circle, draw=black!60, fill=white, inner sep=1pt, font=\small]
+      (p1) at (9.00, 1.65) {$\oplus$};
+    \node[circle, draw=black!60, fill=white, inner sep=1pt, font=\small]
+      (p2) at (9.00, 0.55) {$\oplus$};
+    \node[circle, draw=black!60, fill=white, inner sep=1pt, font=\small]
+      (p3) at (9.00,-0.55) {$\oplus$};
+    \node[circle, draw=black!60, fill=white, inner sep=1pt, font=\small]
+      (p4) at (9.00,-1.65) {$\oplus$};
+
+    % ── U-Net skip path flows down through ⊕ (shows both inputs) ─────
+    \node[font={\scriptsize\itshape}, gray!70, align=center]
+      at (9.00, 2.50) {U-Net\\skip};
+    \draw[->,gray!55,thick] (9.00, 2.30) -- (p1.north);
+    \draw[->,gray!55,thick] (p1.south) -- (p2.north);
+    \draw[->,gray!55,thick] (p2.south) -- (p3.north);
+    \draw[->,gray!55,thick] (p3.south) -- (p4.north);
+
+    % ── Control signal arrows: feature maps → ⊕ (via zero conv) ──────
+    \draw[->,thick] (8.20, 1.65) -- (p1.west)
+      node[midway, above, font={\scriptsize\itshape}] {zero conv};
+    \draw[->,thick] (7.60, 0.55) -- (p2.west);
+    \draw[->,thick] (7.10,-0.55) -- (p3.west);
+    \draw[->,thick] (6.60,-1.65) -- (p4.west);
+
+    % ── U-Net decoder blocks ──────────────────────────────────────────
+    \node[rectangle, rounded corners=2pt, draw=red!50!black, fill=red!6,
+          thick, inner sep=5pt, font=\footnotesize, align=center,
+          minimum width=2.2cm] (u1) at (10.65, 1.65) {U-Net\\decoder 1};
+    \node[rectangle, rounded corners=2pt, draw=red!50!black, fill=red!6,
+          thick, inner sep=5pt, font=\footnotesize, align=center,
+          minimum width=2.2cm] (u2) at (10.65, 0.55) {U-Net\\decoder 2};
+    \node[rectangle, rounded corners=2pt, draw=red!50!black, fill=red!6,
+          thick, inner sep=5pt, font=\footnotesize, align=center,
+          minimum width=2.2cm] (u3) at (10.65,-0.55) {U-Net\\decoder 3};
+    \node[rectangle, rounded corners=2pt, draw=red!50!black, fill=red!6,
+          thick, inner sep=5pt, font=\footnotesize, align=center,
+          minimum width=2.2cm] (u4) at (10.65,-1.65) {U-Net\\decoder 4};
+
+    \draw[->,thick] (p1.east) -- (u1.west);
+    \draw[->,thick] (p2.east) -- (u2.west);
+    \draw[->,thick] (p3.east) -- (u3.west);
+    \draw[->,thick] (p4.east) -- (u4.west);
+
+  \end{tikzpicture}%
+  }
+  \caption{ControlNet spatial conditioning. The binary lesion mask $\mathbf{c}_s$ enters the trainable ControlNet encoder, which extracts spatial features at four progressively coarser resolutions ($64\times64$ down to $8\times8$); box widths are proportional to spatial resolution. Each feature map is injected via a zero convolution into the corresponding frozen U-Net skip connection ($\oplus$), where it is added (from the left) to the U-Net encoder activations flowing down the gray path, before entering the decoder.}
+  \label{fig:controlnet}
+\end{figure}
+
+\subsubsection{Full System Overview: Training and Inference}\label{sec:overview}
+
+Having introduced each building block in isolation (VAE-based latent compression, DDPM noise corruption, dual CLIP text encoding, and ControlNet spatial conditioning), we now describe how they compose into a single, end-to-end trainable system. The complete training data flow is illustrated in Figure~\ref{fig:architecture}.
 
 \begin{figure}[H]
     \centering
@@ -153,21 +278,91 @@ Training runs for 150 epochs in BF16 mixed precision with AdamW~\cite{loshchilov
         \sffamily
         \input{architecture.tex}%
     }
-    \caption{Training architecture of Mask2Derm (ten numbered components). \textbf{①}~Input image $\to$ \textbf{②}~frozen VAE encoder $\to$ latent $\mathbf{z}_0$. \textbf{③}~DDPM noise scheduler adds $\boldsymbol{\epsilon}$ at timestep $t$ to yield $\mathbf{z}_t$. \textbf{④}~Text prompt $\to$ \textbf{⑤}~CLIP Enc.\,1 and \textbf{⑥}~CLIP Enc.\,2 (both frozen) $\to$ joint embedding $\mathbf{c}_t$. \textbf{⑦}~Binary mask $\to$ \textbf{⑧}~ControlNet (the only trainable module) $\to$ zero-conv residuals injected into \textbf{⑨}~frozen SDXL U-Net. Predicted noise $\hat{\boldsymbol{\epsilon}}$ is evaluated by \textbf{⑩}~Min-SNR weighted MSE loss; gradients flow only through~⑧.}
+    \caption{Training architecture of Mask2Derm. \textbf{1.}~Input image $\to$ \textbf{2.}~frozen VAE encoder $\to$ latent $\mathbf{z}_0$. \textbf{3.}~DDPM noise scheduler adds $\boldsymbol{\epsilon}$ at timestep $t$ to yield $\mathbf{z}_t$. \textbf{4.}~Text prompt $\to$ \textbf{5.}~CLIP Enc.\,1 and \textbf{6.}~CLIP Enc.\,2 (frozen) $\to$ joint embedding $\mathbf{c}_t$. \textbf{7.}~Binary mask $\to$ \textbf{8.}~ControlNet (sole trainable module) $\to$ zero-conv residuals injected into \textbf{9.}~frozen SDXL U-Net. \textbf{10.}~Min-SNR weighted loss; gradients flow only through~\textbf{8.}.}
     \label{fig:architecture}
 \end{figure}
 
-% ------------------------------------------------------------------
-\subsection{Classifier-Free Guidance}\label{sec:cfg}
-
-Classifier-Free Guidance (CFG)~\cite{ho2022classifierfree} allows independent control over how strongly the generated image follows the text prompt versus the mask condition, without requiring a separate classifier network.
-
-\paragraph{Conditional dropout.}
-During training, both conditioning signals are occasionally discarded with probability $p_\text{drop}$: the text prompt is replaced by an empty string and the mask by a zero tensor. This forces the model to also learn an unconditional distribution $p(\mathbf{z})$, so the same network can produce both conditional and unconditional noise estimates at inference.
-
-\paragraph{Guided inference.}
-At each denoising step, two forward passes are computed: one with the full conditioning ($\mathbf{c}_t$, $\mathbf{c}_s$) and one with both conditions dropped ($\varnothing$, $\varnothing$). The guided noise estimate linearly extrapolates from the unconditional toward the conditional prediction:
+\paragraph{Training loop.}
+Each iteration samples a triplet $(\mathbf{x},\,\mathbf{c}_s,\,\mathbf{p})$ from the dataset. The four building blocks described above execute in parallel: the frozen VAE encodes $\mathbf{x}$ to $\mathbf{z}_0$; the DDPM scheduler adds noise at a randomly sampled $t$ to yield $\mathbf{z}_t$; the two frozen CLIP encoders produce $\mathbf{c}_t$; and the ControlNet processes $\mathbf{c}_s$ to produce multi-scale residuals $\{\Delta\mathbf{y}_l\}$. The frozen U-Net then receives $\mathbf{z}_t$, attends to $\mathbf{c}_t$ via cross-attention, incorporates $\{\Delta\mathbf{y}_l\}$ through its skip connections, and predicts the added noise:
 \begin{equation}
-    \tilde{\boldsymbol{\epsilon}}_\theta = \boldsymbol{\epsilon}_\theta(\mathbf{z}_t,\varnothing,\varnothing) + w\cdot\bigl(\boldsymbol{\epsilon}_\theta(\mathbf{z}_t,\mathbf{c}_t,\mathbf{c}_s) - \boldsymbol{\epsilon}_\theta(\mathbf{z}_t,\varnothing,\varnothing)\bigr)
+    \hat{\boldsymbol{\epsilon}} = \boldsymbol{\epsilon}_\theta\!\left(\mathbf{z}_t,\, t,\, \mathbf{c}_t,\, \mathbf{c}_s\right).
 \end{equation}
-where $w \geq 1$ is the guidance scale. Higher $w$ produces images that adhere more strictly to the mask and prompt, at the cost of reduced diversity. We use $w = 9.0$ as our default. Denoising is performed with DPM-Solver++~\cite{lu2022dpmsolverpp} and the Karras noise schedule~\cite{karras2022elucidating}, which together deliver high-quality samples in 50 steps.
+The loss is Min-SNR-$\gamma$–weighted MSE~\cite{hang2023efficient} with $\gamma=5$:
+\begin{equation}
+    \mathcal{L} = \mathbb{E}\!\left[\frac{\min(\mathrm{SNR}(t),\,5)}{\mathrm{SNR}(t)}\,\left\|\boldsymbol{\epsilon} - \hat{\boldsymbol{\epsilon}}\right\|^2_2\right],
+\end{equation}
+where $\mathrm{SNR}(t)=\bar{\alpha}_t/(1-\bar{\alpha}_t)$. This caps the gradient contribution of high-SNR steps, balancing learning signal across the full noise spectrum. Gradients flow exclusively through the ControlNet; the U-Net, VAE, and CLIP encoders receive no updates. The optimizer is AdamW ($\mathrm{lr}=10^{-5}$, cosine decay, 1{,}000 warm-up steps); training runs for 150 epochs in BF16 with effective batch size 160.
+
+\paragraph{Inference pipeline.}
+At inference time the pipeline inverts the training process and requires no real image as input: only a binary mask and a text prompt. The procedure unfolds in four stages.
+
+First, a latent vector $\mathbf{z}_T \sim \mathcal{N}(\mathbf{0}, \mathbf{I})$ is sampled from pure Gaussian noise; this is the starting point from which the image will be generated. Second, the text prompt is encoded by the two frozen CLIP encoders exactly as during training, producing the joint embedding $\mathbf{c}_t$. Third, the binary mask $\mathbf{c}_s$ is passed through the now-trained ControlNet, which produces residuals $\{\Delta\mathbf{y}_l\}$ encoding the spatial layout of the lesion. Fourth, the frozen U-Net iteratively denoises the latent over $S=30$ steps using DPM-Solver++~\cite{lu2022dpmsolverpp}, a fast second-order ODE solver that delivers DDIM-quality results in roughly half the steps. At each step, Classifier-Free Guidance (CFG)~\cite{ho2022classifierfree} is applied with guidance scale $w=9.0$ and ControlNet conditioning scale $0.8$, sharpening adherence to both the text and the mask:
+\begin{equation}
+    \tilde{\boldsymbol{\epsilon}}_\theta = \boldsymbol{\epsilon}_\theta(\mathbf{z}_t,\varnothing,\varnothing) + w\cdot\bigl(\boldsymbol{\epsilon}_\theta(\mathbf{z}_t,\mathbf{c}_t,\mathbf{c}_s) - \boldsymbol{\epsilon}_\theta(\mathbf{z}_t,\varnothing,\varnothing)\bigr).
+\end{equation}
+After all $S$ denoising steps, the resulting clean latent $\hat{\mathbf{z}}_0$ is decoded by the frozen VAE decoder $\mathcal{D}$ back into pixel space:
+\begin{equation}
+    \hat{\mathbf{x}} = \mathcal{D}(\hat{\mathbf{z}}_0) \in \mathbb{R}^{1024\times1024\times3}.
+\end{equation}
+The output $\hat{\mathbf{x}}$ is a photorealistic dermoscopic image whose lesion is spatially bounded by the input mask $\mathbf{c}_s$ and whose visual appearance is conditioned on the text prompt $\mathbf{p}$. The entire inference pipeline (from mask and prompt to synthetic image) runs in under four seconds on a single A100 GPU.
+
+% ------------------------------------------------------------------
+
+\subsubsection{Mask Generation Pipeline}\label{sec:maskgen}
+
+When real segmentation masks are not available, Mask2Derm includes an optional mask generation module: a lightweight DDPM~\cite{ho2020denoising} ($\approx$22M parameters) trained exclusively on binary dermoscopic lesion masks. The module is fully decoupled from the main synthesis pipeline; real masks, generated masks, and hand-drawn annotations are all interchangeable inputs to the ControlNet stage.
+
+\paragraph{Architecture and training.}
+The noise prediction backbone is a four-level encoder–decoder UNet with channel widths $[C,\,2C,\,4C,\,4C]$, skip connections, and self-attention at the two deepest levels. Timestep conditioning uses FiLM~\cite{perez2018film}: a sinusoidal embedding of $t$ produces a scale–shift pair $(\boldsymbol{\gamma},\boldsymbol{\beta})$ that modulates each Group-Normalised feature map as $\mathbf{h}'=\mathbf{h}\odot(1+\boldsymbol{\gamma})+\boldsymbol{\beta}$. The forward process follows the same DDPM marginal as the main pipeline (Section~\ref{sec:overview}), but uses a cosine noise schedule~\cite{nichol2021improved} with $s=0.008$ to preserve sharper binary boundaries at low noise levels. The training objective is a plain MSE loss (no Min-SNR weighting):
+\begin{equation}
+    \mathcal{L}_\text{mask} = \mathbb{E}_{\mathbf{x}_0,\boldsymbol{\epsilon},t}\!\left[\left\|\boldsymbol{\epsilon} - \boldsymbol{\epsilon}_\phi(\mathbf{x}_t,t)\right\|^2_2\right].
+\end{equation}
+Training runs for 50 epochs with AdamW ($\mathrm{lr}=2\times10^{-4}$, weight decay $10^{-4}$, cosine annealing, gradient clip $1.0$).
+
+\paragraph{Inference and post-processing.}
+Sampling uses DDIM with $S=50$ steps ($20\times$ cheaper than full DDPM). The continuous output is binarized at zero and refined by: \textit{(i)}~largest connected component, \textit{(ii)}~morphological opening (disk radius 3), \textit{(iii)}~hole-filling, \textit{(iv)}~Gaussian smoothing ($\sigma=2$) and re-thresholding at $0.4$. Masks whose lesion area falls outside $[2\%,\,80\%]$ of the image, or where any foreground pixel lies within 4 pixels of the image border, are rejected. Accepted masks are upsampled from $128\times128$ to $512\times512$ via LANCZOS resampling.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[>=stealth, node distance=0.6cm]
+
+  %% Step boxes (labels above images)
+  \node[font=\small\bfseries, align=center] (l1) at (0, 0)
+    {\textbf{1.}~Generate Mask\\[2pt]{\footnotesize\normalfont DDPM mask generator}};
+
+  \node[font=\small\bfseries, align=center] (l2) at (5.8, 0)
+    {\textbf{2.}~ControlNet Diffusion\\[2pt]{\footnotesize\normalfont mask + text prompt $\to$ SDXL}};
+
+  \node[font=\small\bfseries, align=center] (l3) at (11.6, 0)
+    {\textbf{3.}~Synthesised Lesion\\[2pt]{\footnotesize\normalfont photorealistic dermoscopy}};
+
+  %% Images
+  \node[below=0.15cm of l1] (img1)
+    {\includegraphics[width=3.5cm, height=3.5cm, keepaspectratio]{figures/example_mask.png}};
+
+  %% Middle box: ControlNet schematic
+  \node[below=0.15cm of l2,
+        rectangle, rounded corners=5pt,
+        draw=orange!70!black, fill=orange!8, very thick,
+        minimum width=3.5cm, minimum height=3.5cm, align=center,
+        font=\small] (box2)
+    {ControlNet\\[4pt]$+$\\[4pt]SDXL U-Net\\[8pt]
+     {\footnotesize\itshape ``dermoscopy image of}\\
+     {\footnotesize\itshape a skin lesion,}\\
+     {\footnotesize\itshape high quality''}};
+
+  \node[below=0.15cm of l3] (img3)
+    {\includegraphics[width=3.5cm, height=3.5cm, keepaspectratio]{figures/example_generated.png}};
+
+  %% Arrows
+  \draw[->, very thick] (img1.east) -- node[above, font=\scriptsize]{binary mask} (box2.west);
+  \draw[->, very thick] (box2.east) -- node[above, font=\scriptsize]{denoised latent} (img3.west);
+
+\end{tikzpicture}
+\caption{End-to-end inference example. \textbf{1.}~The DDPM mask generator produces a binary lesion mask from Gaussian noise. \textbf{2.}~The mask and a text prompt are fed into the ControlNet + SDXL pipeline, which performs 30 DPM-Solver++ denoising steps with CFG ($w=9.0$). \textbf{3.}~The VAE decoder maps the denoised latent to a $1024\times1024$ photorealistic dermoscopic image whose lesion shape faithfully follows the input mask.}
+\label{fig:pipeline_example}
+\end{figure}
+
+\paragraph{What is learned and what is not.}
+It is worth emphasising the deliberate asymmetry of the training regime. The full Mask2Derm stack comprises approximately 4.7 billion parameters: the SDXL U-Net backbone (2.57B), the ControlNet (1.25B), the VAE (84M), and the two CLIP text encoders (123M and 695M). Of these, only the ControlNet's 1.25 billion parameters are ever updated; the remaining 3.47 billion parameters are entirely frozen. This design choice is not merely computational convenience. Fine-tuning the frozen backbone on a medical dataset of $\approx$10{,}000 images would cause catastrophic forgetting~\cite{mccloskey1989catastrophic}: the pretrained representations of skin texture, lighting, and photographic structure built from billions of natural images would be rapidly overwritten by the narrow statistics of the dermoscopy corpus, collapsing output diversity and degrading visual quality. By confining all learning to the ControlNet, a module whose sole purpose is spatial layout control, the system retains the full generative capability of RealVisXL while acquiring the ability to localise lesions according to clinician-provided masks.
+

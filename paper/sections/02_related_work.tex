@@ -88,7 +88,7 @@ signals~\cite{ho2020denoising} (Figure~\ref{fig:gan_vs_diffusion}).
 This property makes them particularly suited to the two-stage
 pipeline explored in the present work, in which a diffusion model
 first synthesises a plausible lesion mask and subsequently generates
-a photorealistic dermoscopy image conditioned on that mask ---
+a photorealistic dermoscopy image conditioned on that mask,
 decoupling shape generation from texture synthesis and enabling
 fine-grained control over both.
 
@@ -110,7 +110,7 @@ At the architecture level, SkinDualGen~\cite{xu2025skindualgen}
 extended Stable Diffusion with LoRA fine-tuning to simultaneously
 synthesise a dermoscopic image and its corresponding binary
 segmentation mask from a single text prompt, achieving a Dice score
-of 80.12 and an IoU of 66.84 on ISIC 2018 --- removing the need for
+of 80.12 and an IoU of 66.84 on ISIC 2018, removing the need for
 separate mask annotation entirely.
 ControlNet-based adaptations of mask-conditioned diffusion further
 demonstrated that providing an explicit lesion boundary as a spatial

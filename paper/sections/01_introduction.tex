@@ -26,14 +26,14 @@ of available annotated samples. Recruiting expert dermatologists for additional
 pixel-level mask annotation was not a feasible option at our scale.
 Faced with this bottleneck, we concluded that the most practical path to breaking
 through the segmentation performance barrier was not to redesign the model, but to
-expand the training data itself — specifically by generating new paired image--mask
+expand the training data itself, specifically by generating new paired image--mask
 samples synthetically.
 
 This observation led us to reframe the problem: rather than acquiring more labeled
 images, we ask whether a generative model can produce realistic dermoscopic images
 that \emph{conform to a given segmentation mask}. Such a model would invert the
-traditional annotation pipeline — instead of experts labeling images, the model
-produces images already aligned to their masks — yielding an effectively unlimited
+traditional annotation pipeline: instead of experts labeling images, the model
+produces images already aligned to their masks, yielding an effectively unlimited
 supply of paired training data.
 
 However, generating \emph{clinically plausible} dermoscopy images is non-trivial. 
