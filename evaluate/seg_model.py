@@ -163,16 +163,22 @@ def _get_pairs(image_dir: Path, mask_dir: Path):
         mp = mask_dir / f"{ip.stem}.png"
         if not mp.exists():
             mp = mask_dir / f"{ip.stem}_segmentation.png"
+        if not mp.exists():
+            base = ip.stem.removesuffix("_generated")
+            mp = mask_dir / f"{base}.png"
+        if not mp.exists():
+            mp = mask_dir / f"{base}_segmentation.png"
         if mp.exists():
             pairs.append((ip, mp))
     return pairs
 
 
 def train_seg_model(
-    image_dir: str | Path,
-    mask_dir:  str | Path,
+    image_dir: str | Path | None,
+    mask_dir:  str | Path | None,
     save_path: str | Path,
     *,
+    pairs:         list | None = None,
     val_image_dir: str | Path | None = None,
     val_mask_dir:  str | Path | None = None,
     epochs:        int   = 30,
@@ -184,7 +190,7 @@ def train_seg_model(
     save_path = Path(save_path)
     save_path.parent.mkdir(parents=True, exist_ok=True)
 
-    train_pairs = _get_pairs(Path(image_dir), Path(mask_dir))
+    train_pairs = pairs if pairs is not None else _get_pairs(Path(image_dir), Path(mask_dir))
     train_ds    = _SegDataset([p[0] for p in train_pairs],
                                [p[1] for p in train_pairs],
                                size=size, augment=True)

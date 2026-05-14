@@ -102,6 +102,7 @@ def generate_image(
     guidance_scale: float,
     controlnet_conditioning_scale: float,
     seed: int | None,
+    apply_lens_sim: bool = False,
 ) -> Image.Image:
     generator = torch.manual_seed(seed) if seed is not None else None
     result = pipe(
@@ -113,7 +114,8 @@ def generate_image(
         controlnet_conditioning_scale=controlnet_conditioning_scale,
         generator=generator,
     )
-    return apply_optics(result.images[0])
+    img = result.images[0]
+    return apply_optics(img) if apply_lens_sim else img
 
 
 def save_comparison_grid(masks: list[Image.Image], generated: list[Image.Image],
@@ -182,6 +184,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--fp32", action="store_true",
                         help="Use FP32 instead of FP16 (slower but more precise)")
+    parser.add_argument("--apply_lens_sim", action="store_true",
+                        help="Apply vignetting/barrel optics post-generation (off by default "
+                             "— training used apply_lens_simulation: false)")
 
     return parser.parse_args()
 
@@ -200,7 +205,8 @@ def main() -> None:
         print(f"Generating from {args.mask}… prompt: {prompt}")
         img = generate_image(pipe, mask, prompt, args.negative_prompt,
                              args.num_steps, args.guidance_scale,
-                             args.controlnet_scale, args.seed)
+                             args.controlnet_scale, args.seed,
+                             apply_lens_sim=args.apply_lens_sim)
         img.save(args.output)
         print(f"Saved → {args.output}")
 
@@ -248,7 +254,8 @@ def main() -> None:
             ).images
 
             for mp, img in zip(paths, results):
-                img = apply_optics(img)
+                if args.apply_lens_sim:
+                    img = apply_optics(img)
                 img.save(out_dir / f"{mp.stem}_generated.png")
                 if args.save_grid:
                     all_masks.append(load_mask(mp, size=args.resolution))

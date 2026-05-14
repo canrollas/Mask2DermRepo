@@ -126,6 +126,11 @@ def batch_dice_iou(pred_dir: str | Path,
         if not gp.exists():
             gp = gt_dir / (pp.stem + "_segmentation.png")
         if not gp.exists():
+            base = pp.stem.removesuffix("_generated")
+            gp = gt_dir / f"{base}.png"
+        if not gp.exists():
+            gp = gt_dir / f"{base}_segmentation.png"
+        if not gp.exists():
             continue
 
         pred = np.array(Image.open(pp).convert("L").resize((size, size))) / 255.0

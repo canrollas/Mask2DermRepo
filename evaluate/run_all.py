@@ -4,7 +4,16 @@ Mask2Derm — Full Evaluation Runner
 Exp 1-3 direkt mevcut görüntüler üzerinde çalışır (generation yok).
 Ablasyonlar (5-7) farklı parametrelerle yeniden üretir.
 
-Usage:
+Usage (single real dir, split internally):
+    python evaluate/run_all.py \
+        --gen_dir     outputs/generated \
+        --real_dir    data/processed/images \
+        --mask_dir    data/processed/masks \
+        --seg_model   outputs/eval_seg/unet.pth \
+        --results_dir results \
+        --device      cuda
+
+Usage (pre-split dirs):
     python evaluate/run_all.py \
         --gen_dir         outputs/generated \
         --real_dir        data/processed/test_images \
@@ -39,12 +48,13 @@ def main():
     p.add_argument("--gen_dir",          required=True)
     p.add_argument("--real_dir",         required=True)
     p.add_argument("--mask_dir",         required=True)
-    p.add_argument("--real_train_img",   required=True)
-    p.add_argument("--real_train_mask",  required=True)
-    p.add_argument("--test_img",         default=None,
-                   help="Test images dir (defaults to --real_dir)")
-    p.add_argument("--test_mask",        default=None,
-                   help="Test masks dir (defaults to --mask_dir)")
+    # Train/test split: either provide pre-split dirs OR let exp3 split internally
+    p.add_argument("--real_train_img",   default=None)
+    p.add_argument("--real_train_mask",  default=None)
+    p.add_argument("--test_img",         default=None)
+    p.add_argument("--test_mask",        default=None)
+    p.add_argument("--test_split",       type=float, default=0.2,
+                   help="Fraction held out for test when no pre-split dirs given")
     p.add_argument("--seg_model",        required=True)
     # ControlNet (only needed for ablations 4-7)
     p.add_argument("--controlnet",       default=None)
@@ -63,8 +73,6 @@ def main():
 
     py = sys.executable
     rd = Path(args.results_dir)
-    test_img  = args.test_img  or args.real_dir
-    test_mask = args.test_mask or args.mask_dir
 
     status = {}
 
@@ -88,16 +96,26 @@ def main():
     ], "Exp 2 — Mask Fidelity (Dice / IoU)")
 
     # Exp 3 — Downstream Utility
+    if args.real_train_img and args.test_img:
+        exp3_real_flags = [
+            "--real_train_img",  args.real_train_img,
+            "--real_train_mask", args.real_train_mask,
+            "--test_img",        args.test_img,
+            "--test_mask",       args.test_mask,
+        ]
+    else:
+        exp3_real_flags = [
+            "--real_img",    args.real_dir,
+            "--real_mask",   args.mask_dir,
+            "--test_split",  str(args.test_split),
+        ]
     status["exp3"] = _run([
         py, "evaluate/exp3_downstream.py",
-        "--real_train_img",  args.real_train_img,
-        "--real_train_mask", args.real_train_mask,
-        "--syn_img",         args.gen_dir,
-        "--syn_mask",        args.mask_dir,
-        "--test_img",        test_img,
-        "--test_mask",       test_mask,
-        "--output_dir",      str(rd / "exp3_downstream"),
-        "--device",          args.device,
+        *exp3_real_flags,
+        "--syn_img",    args.gen_dir,
+        "--syn_mask",   args.mask_dir,
+        "--output_dir", str(rd / "exp3_downstream"),
+        "--device",     args.device,
     ], "Exp 3 — Downstream Segmentation Utility")
 
     if args.skip_ablations or not args.controlnet:
